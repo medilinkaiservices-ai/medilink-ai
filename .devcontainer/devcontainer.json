@@ -1,0 +1,29 @@
+{
+  "name": "Medilink AI",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "postCreateCommand": "npm install && npm --prefix webapp install && npm --prefix functions install && npm install -g firebase-tools",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "github.vscode-github-actions"
+      ]
+    }
+  },
+  "forwardPorts": [3000, 5000, 5201, 8080],
+  "portsAttributes": {
+    "3000": {
+      "label": "React webapp"
+    },
+    "5000": {
+      "label": "Firebase hosting emulator"
+    },
+    "5201": {
+      "label": "Firebase functions emulator"
+    },
+    "8080": {
+      "label": "Firestore emulator"
+    }
+  }
+}
