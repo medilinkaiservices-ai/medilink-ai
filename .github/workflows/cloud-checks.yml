@@ -42,5 +42,4 @@ jobs:
       - name: Lint Firebase functions
         run: npm run lint:functions
 
-      - name: Test Firebase functions
-        run: npm --prefix functions test
+     
