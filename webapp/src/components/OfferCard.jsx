@@ -67,9 +67,7 @@ function OfferCard({ isOwner, products = [] }) {
 
   };
 
-  const deleteOffer = (id) => {
-    setOffers(offers.filter(o => o.id !== id));
-  };
+  
 
   const handleChange = (id, field, value) => {
 
