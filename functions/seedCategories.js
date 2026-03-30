@@ -1,4 +1,5 @@
-
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
 exports.seedCategories = functions.https.onRequest(async (req, res) => {
 
   const categories = [
