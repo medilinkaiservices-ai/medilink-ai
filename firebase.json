@@ -1,0 +1,62 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": {
+    "runtime": "nodejs22",
+    "gen": 2,
+    "cpu": 1,
+    "memory": "512MB",
+    "region": "us-central1",
+    "params": {
+      "GEMINI_KEY": "YOUR_ACTUAL_GEMINI_API_KEY_HERE",
+      "WHATSAPP_PHONE_NUMBER_ID": "YOUR_PHONE_ID",
+      "WHATSAPP_TOKEN": "YOUR_WHATSAPP_TOKEN"
+    },
+    "source": "functions"
+  },
+  "hosting": {
+    "public": "webapp/build",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/chat",
+        "function": "chat"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "emulators": {
+    "functions": {
+      "port": 5201
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": false,
+      "port": 4000
+    },
+    "singleProjectMode": true,
+    "dataconnect": {
+      "dataDir": "dataconnect/.dataconnect/pgliteData"
+    }
+  },
+  "dataconnect": {
+    "source": "dataconnect"
+  }
+}

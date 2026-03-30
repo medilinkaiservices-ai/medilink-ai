@@ -1,0 +1,42 @@
+[
+  {
+    "id": "supreme-court",
+    "name": "Supreme Court Feed",
+    "court": "Supreme Court",
+    "status": "active",
+    "cadence": "daily",
+    "importTemplate": "court_standard_v1",
+    "retrievalMode": "html_sc_latest",
+    "endpoint": "https://www.sci.gov.in/"
+  },
+  {
+    "id": "bombay-high-court",
+    "name": "Bombay High Court Feed",
+    "court": "Bombay High Court",
+    "status": "active",
+    "cadence": "daily",
+    "importTemplate": "court_standard_v1",
+    "retrievalMode": "html_table_latest",
+    "endpoint": "https://www.bombayhighcourt.nic.in/recentorderjudgment.php"
+  },
+  {
+    "id": "delhi-high-court",
+    "name": "Delhi High Court Feed",
+    "court": "Delhi High Court",
+    "status": "active",
+    "cadence": "daily",
+    "importTemplate": "court_standard_v1",
+    "retrievalMode": "html_table_latest",
+    "endpoint": "https://delhihighcourt.nic.in/"
+  },
+  {
+    "id": "madras-high-court",
+    "name": "Madras High Court Feed",
+    "court": "Madras High Court",
+    "status": "active",
+    "cadence": "daily",
+    "importTemplate": "court_standard_v1",
+    "retrievalMode": "html_generic_latest",
+    "endpoint": "https://www.mhc.tn.gov.in/judis"
+  }
+]

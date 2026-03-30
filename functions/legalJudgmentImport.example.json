@@ -1,0 +1,30 @@
+{
+  "action": "judgment_import_payload",
+  "ownerId": "demo-lawyer",
+  "sourceId": "supreme-court",
+  "records": [
+    {
+      "id": "sc-demo-001",
+      "title": "Demo Supreme Court Judgment",
+      "citation": "2026 INSC 101",
+      "court": "Supreme Court",
+      "bench": "Two-Judge Bench",
+      "judgmentDate": "2026-03-29",
+      "summary": "A structured summary of the judgment suitable for fast legal research.",
+      "ratioNote": "The ratio focuses on maintainability, documentary proof, and relief framing.",
+      "relevanceNote": "Useful for writ strategy and preliminary maintainability objections.",
+      "treatmentStatus": "followed",
+      "cautionFlag": "Verify whether later contrary observations exist before final reliance.",
+      "issueTags": ["maintainability", "writ", "documentary proof"],
+      "holdingPoints": [
+        "Maintainability depends on the pleaded public law element.",
+        "Documentary support materially affects interim relief."
+      ],
+      "keyParagraphs": ["Para 12", "Para 26", "Para 34"],
+      "practicalUse": [
+        "Use for issue-framing in initial research.",
+        "Cross-check with latest court-specific procedural updates."
+      ]
+    }
+  ]
+}

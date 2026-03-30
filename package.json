@@ -1,0 +1,26 @@
+{
+  "name": "medilink-ai",
+  "private": true,
+  "scripts": {
+    "bootstrap": "npm install && npm --prefix webapp install && npm --prefix functions install",
+    "dev": "npm --prefix webapp start",
+    "build": "npm --prefix webapp run build",
+    "test": "npm --prefix webapp run test",
+    "install:web": "npm --prefix webapp install",
+    "install:functions": "npm --prefix functions install",
+    "lint:functions": "npm --prefix functions run lint",
+    "serve:functions": "npm --prefix functions run serve",
+    "deploy:functions": "npm --prefix functions run deploy"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "cors": "^2.8.6",
+    "firebase": "^12.11.0",
+    "geolib": "^3.3.4",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
+    "qrcode": "^1.5.4",
+    "react-easy-crop": "^5.5.6",
+    "react-router-dom": "^7.13.2"
+  }
+}

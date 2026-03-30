@@ -1,0 +1,119 @@
+mutation CreateDemoData @transaction @auth(level: USER, insecureReason: "Seed data mutations are for internal use and will only be run by authenticated administrators.") {
+  user_insertMany(data: [
+    {
+      id: "b4e8d3e8-8a2a-4f5b-9d4f-5a6b7c8d9e0f",
+      whatsappNumber: "+15551234567",
+      createdAt: "2023-01-01T12:00:00Z",
+      name: "Alice Smith",
+      preferredLanguage: "en"
+    },
+    {
+      id: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      whatsappNumber: "+15559876543",
+      createdAt: "2023-01-02T10:30:00Z",
+      name: "Bob Johnson",
+      preferredLanguage: "es"
+    }
+  ])
+  conversation_insertMany(data: [
+    {
+      id: "c1a2b3c4-d5e6-7890-abcd-ef1234567890",
+      userId: "b4e8d3e8-8a2a-4f5b-9d4f-5a6b7c8d9e0f",
+      startTime: "2023-01-01T12:05:00Z",
+      lastMessageTime: "2023-01-01T12:30:00Z",
+      status: "active"
+    },
+    {
+      id: "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      startTime: "2023-01-02T10:35:00Z",
+      lastMessageTime: "2023-01-02T11:00:00Z",
+      status: "closed"
+    }
+  ])
+  message_insertMany(data: [
+    {
+      id: "m1n2o3p4-q5r6-7s8t-9u0v-w1x2y3z4a5b6",
+      conversationId: "c1a2b3c4-d5e6-7890-abcd-ef1234567890",
+      userId: "b4e8d3e8-8a2a-4f5b-9d4f-5a6b7c8d9e0f",
+      content: "Hello, I need some information about my health.",
+      timestamp: "2023-01-01T12:05:00Z",
+      senderType: "user",
+      messageType: "text"
+    },
+    {
+      id: "d6c5b4a3-e2f1-0987-6543-210fedcba987",
+      conversationId: "c1a2b3c4-d5e6-7890-abcd-ef1234567890",
+      userId: "b4e8d3e8-8a2a-4f5b-9d4f-5a6b7c8d9e0f",
+      content: "Hi Alice, how can I help you today?",
+      timestamp: "2023-01-01T12:10:00Z",
+      senderType: "AI",
+      messageType: "text"
+    },
+    {
+      id: "e0f1g2h3-i4j5-k6l7-m8n9-o0p1q2r3s4t5",
+      conversationId: "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      content: "Hola, necesito ayuda con mi medicación.",
+      timestamp: "2023-01-02T10:35:00Z",
+      senderType: "user",
+      messageType: "text"
+    }
+  ])
+  healthQuery_insertMany(data: [
+    {
+      id: "h1q2r3s4-t5u6-v7w8-x9y0-z1a2b3c4d5e6",
+      messageId: "m1n2o3p4-q5r6-7s8t-9u0v-w1x2y3z4a5b6",
+      queryText: "What are the symptoms of the flu?",
+      createdAt: "2023-01-01T12:07:00Z",
+      detectedIntent: "symptom_inquiry",
+      keywords: ["flu", "symptoms"]
+    },
+    {
+      id: "i9j8k7l6-m5n4-o3p2-q1r0-s9t8u7v6w5x4",
+      messageId: "e0f1g2h3-i4j5-k6l7-m8n9-o0p1q2r3s4t5",
+      queryText: "¿Cuáles son los efectos secundarios de la aspirina?",
+      createdAt: "2023-01-02T10:37:00Z",
+      detectedIntent: "medication_side_effects",
+      keywords: ["aspirina", "efectos secundarios"]
+    }
+  ])
+  aIResponse_insertMany(data: [
+    {
+      id: "ar1s2t3u-v4w5-x6y7-z8a9-b0c1d2e3f4g5",
+      healthQueryId: "h1q2r3s4-t5u6-v7w8-x9y0-z1a2b3c4d5e6",
+      responseText: "Common flu symptoms include fever, cough, sore throat, and body aches.",
+      responseTime: "2023-01-01T12:08:00Z",
+      confidenceScore: 0.95,
+      responseType: "informational"
+    },
+    {
+      id: "p0o9i8u7-y6t5-r4e3-w2q1-z0x9c8v7b6n5",
+      healthQueryId: "i9j8k7l6-m5n4-o3p2-q1r0-s9t8u7v6w5x4",
+      responseText: "Los efectos secundarios comunes de la aspirina pueden incluir malestar estomacal y acidez estomacal.",
+      responseTime: "2023-01-02T10:38:00Z",
+      confidenceScore: 0.92,
+      responseType: "informational"
+    }
+  ])
+  feedback_insertMany(data: [
+    {
+      id: "fb1g2h3i-j4k5-l6m7-n8o9-p0q1r2s3t4u5",
+      userId: "b4e8d3e8-8a2a-4f5b-9d4f-5a6b7c8d9e0f",
+      aiResponseId: "ar1s2t3u-v4w5-x6y7-z8a9-b0c1d2e3f4g5",
+      feedbackType: "positive",
+      createdAt: "2023-01-01T12:35:00Z",
+      comments: "Very helpful and accurate information.",
+      rating: 5
+    },
+    {
+      id: "v8w7x6y5-z4a3-b2c1-d0e9-f8g7h6i5j4k3",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      aiResponseId: "p0o9i8u7-y6t5-r4e3-w2q1-z0x9c8v7b6n5",
+      feedbackType: "neutral",
+      createdAt: "2023-01-02T11:05:00Z",
+      comments: "La respuesta fue buena, pero un poco genérica.",
+      rating: 3
+    }
+  ])
+}

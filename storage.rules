@@ -1,0 +1,34 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isImageUpload() {
+      return request.resource != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /shopGallery/{shopId}/{fileName} {
+      allow read: if true;
+      allow write: if isImageUpload();
+    }
+
+    match /shopCovers/{shopId} {
+      allow read: if true;
+      allow write: if isImageUpload();
+    }
+
+    match /shopLogos/{shopId} {
+      allow read: if true;
+      allow write: if isImageUpload();
+    }
+
+    match /productImages/{fileName} {
+      allow read: if true;
+      allow write: if isImageUpload();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

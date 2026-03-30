@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Temporary development rules to unblock the app while auth is still local-storage based.
+    // Tighten these before production.
+
+    match /products/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /sellers/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /categories/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /offers/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /orders/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /affiliateClicks/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /affiliateSales/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /hospitals/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /hospitalDoctors/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /hospitalServices/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /hospitalAppointments/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /hospitalPatientSummaries/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /hospitalAiReports/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /chatRooms/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /chatMessages/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /callSessions/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

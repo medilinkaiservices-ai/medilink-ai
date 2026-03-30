@@ -1,0 +1,59 @@
+# Operation 1: Get a user's conversations
+query GetUserConversations @auth(level: USER, insecureReason: "This operation retrieves data specific to the logged-in user.") {
+  conversations(where: {userId: {eq_expr: "auth.uid"}}) {
+    id
+    startTime
+    lastMessageTime
+    status
+    messages_on_conversation(orderBy: [{timestamp: ASC}]) {
+      id
+      content
+      timestamp
+      senderType
+    }
+  }
+}
+
+# Operation 2: Send a new message in a conversation
+mutation SendNewMessage($conversationId: UUID!, $content: String!) @auth(level: USER, insecureReason: "This operation allows logged-in users to send messages within a specific conversation.") {
+  message_insert(data: {
+    conversationId: $conversationId,
+    userId_expr: "auth.uid",
+    content: $content,
+    timestamp_expr: "request.time",
+    senderType: "User"
+  }) {
+    id
+  }
+}
+
+# Operation 3: Record AI response feedback
+mutation RecordAIResponseFeedback($aiResponseId: UUID!, $feedbackType: String!, $rating: Int, $comments: String) @auth(level: USER, insecureReason: "This operation allows logged-in users to provide feedback on AI responses.") {
+  feedback_insert(data: {
+    aiResponseId: $aiResponseId,
+    userId_expr: "auth.uid",
+    feedbackType: $feedbackType,
+    createdAt_expr: "request.time",
+    rating: $rating,
+    comments: $comments
+  }) {
+    id
+  }
+}
+
+# Operation 4: Get details of a specific Health Query (for public viewing, but still useful for debugging/showcasing)
+query GetPublicHealthQueryDetails($healthQueryId: UUID!) @auth(level: PUBLIC, insecureReason: "This operation is safe to expose to the public and does not contain sensitive user data.") {
+  healthQuery(id: $healthQueryId) {
+    id
+    queryText
+    createdAt
+    detectedIntent
+    keywords
+    aIResponses_on_healthQuery {
+      id
+      responseText
+      responseTime
+      confidenceScore
+    }
+  }
+}

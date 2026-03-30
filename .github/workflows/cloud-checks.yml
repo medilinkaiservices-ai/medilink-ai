@@ -1,0 +1,46 @@
+name: Cloud Checks
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - codex/**
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            webapp/package-lock.json
+            functions/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install webapp dependencies
+        run: npm --prefix webapp ci
+
+      - name: Install functions dependencies
+        run: npm --prefix functions ci
+
+      - name: Build webapp
+        run: npm run build
+
+      - name: Lint Firebase functions
+        run: npm run lint:functions
+
+      - name: Test Firebase functions
+        run: npm --prefix functions test

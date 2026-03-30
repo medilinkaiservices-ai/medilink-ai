@@ -1,0 +1,47 @@
+type User @table {
+  whatsappNumber: String!
+  createdAt: Timestamp!
+  name: String
+  preferredLanguage: String
+}
+
+type Conversation @table {
+  user: User
+  startTime: Timestamp!
+  lastMessageTime: Timestamp!
+  status: String
+}
+
+type Message @table {
+  conversation: Conversation
+  user: User
+  content: String!
+  timestamp: Timestamp!
+  senderType: String!
+  messageType: String
+}
+
+type HealthQuery @table {
+  message: Message
+  queryText: String!
+  createdAt: Timestamp!
+  detectedIntent: String
+  keywords: [String]
+}
+
+type AIResponse @table {
+  healthQuery: HealthQuery
+  responseText: String!
+  responseTime: Timestamp!
+  confidenceScore: Float
+  responseType: String
+}
+
+type Feedback @table {
+  user: User
+  aiResponse: AIResponse
+  feedbackType: String!
+  createdAt: Timestamp!
+  comments: String
+  rating: Int
+}
