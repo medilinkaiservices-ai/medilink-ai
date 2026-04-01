@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -7,13 +7,28 @@ import {
   registerRole,
   setLastActiveRole
 } from "../utils/session";
-import { analyzeCaseStrength, analyzeDraftValidation, analyzeEvidenceCoverage, analyzeFilingPackReadiness, analyzeFilingReadiness, analyzeLegalDocument, analyzeMatterConsistency, buildArguments, evaluateAuthorityGuardrails, fetchCaseCitations, fetchCaseValidity, listLegalReviewSnapshots, listLegalReviews, predictCaseOutcome, runLegalAction, saveLegalReview } from "../utils/legalApi";
+import { analyzeCaseStrength, analyzeDraftValidation, analyzeEvidenceCoverage, analyzeFilingPackReadiness, analyzeFilingReadiness, analyzeLegalDocument, analyzeMatterConsistency, buildArguments, evaluateAuthorityGuardrails, fetchCaseCitations, fetchCaseValidity, listLegalReviewSnapshots, listLegalReviews, predictCaseOutcome, runCopilotChat, runLegalAction, saveLegalReview } from "../utils/legalApi";
+import { buildCopilotContext, fetchCopilotActions, fetchFilingGuidance, generateCopilotDraft, getCopilotSession, sendCopilotChatMessage, startCopilotSession, submitCopilotIntake, validateCopilotDraft } from "../utils/copilotApi";
+import { endpointConfig } from "../utils/endpointConfig";
 
 const PUBLIC_DISCLAIMER = "This is not a substitute for a qualified lawyer";
+const LOCAL_COPILOT_ONLY = endpointConfig.useLocalCopilotOnly;
 const APPROVAL_ROLE_OPTIONS = [
   { value: "reviewer", label: "Reviewer" },
   { value: "senior_lawyer", label: "Senior Lawyer" },
   { value: "partner", label: "Partner" }
+];
+const REVIEW_STATUS_OPTIONS = [
+  { value: "ai_draft", label: "AI Draft" },
+  { value: "needs_revision", label: "Needs Revision" },
+  { value: "reviewed", label: "Reviewed" },
+  { value: "approved", label: "Approved" }
+];
+const FIRM_ESCALATION_OPTIONS = [
+  { value: "routine", label: "Routine" },
+  { value: "senior_review", label: "Senior Review" },
+  { value: "partner_hold", label: "Partner Hold" },
+  { value: "urgent", label: "Urgent" }
 ];
 
 const LAWYER_TABS = [
@@ -123,8 +138,507 @@ I, [Name], aged [__], residing at [address], do hereby solemnly affirm:
 Verified at [place] on [date] that contents are true to my knowledge.
 
 DEPONENT`
+  },
+  {
+    id: "complaint-cheque",
+    title: "Complaint Format",
+    draftType: "complaint",
+    body:
+`IN THE COURT OF THE HON'BLE [COURT NAME]
+AT [PLACE]
+
+COMPLAINT UNDER SECTION [___]
+
+COMPLAINANT: [Name]
+
+VERSUS
+
+ACCUSED: [Name]
+
+FACTS OF THE CASE:
+1. [Transaction background]
+2. [Default / dishonour / breach facts]
+3. [Cause for complaint]
+
+GROUNDS:
+1. [Statutory basis]
+2. [Supporting legal basis]
+
+PRAYER:
+It is therefore prayed that appropriate process and relief be granted in accordance with law.
+
+PLACE:
+DATE:
+
+COUNSEL FOR THE COMPLAINANT`
   }
 ];
+
+const COPILOT_STARTERS = [
+  "Build draft",
+  "Ask missing facts",
+  "Find laws",
+  "Review draft"
+];
+
+function detectTeluguTone(text = "") {
+  const value = String(text || "").toLowerCase();
+  return /telugu|cheppu|enti|enduku|ela|ivvu|vaddu|sambandham|deniki|inka|kavali|chesi/.test(value);
+}
+
+function formatAuthorityLabel(item) {
+  if (!item) return "";
+  if (typeof item === "string") return item;
+  return [item.title, item.citation].filter(Boolean).join(" | ");
+}
+
+function normalizeWorkspaceSnapshot({ facts = "", output = null } = {}) {
+  const safeOutput = output || {};
+  const applicableSections = Array.isArray(safeOutput.applicableSections) ? safeOutput.applicableSections.map(String) : [];
+  const caseLaws = Array.isArray(safeOutput.caseLaws) ? safeOutput.caseLaws.map(formatAuthorityLabel).filter(Boolean) : [];
+  const retrievedAuthorities = Array.isArray(safeOutput.retrievedAuthorities)
+    ? safeOutput.retrievedAuthorities.map((item) => ({
+        title: item?.title || "",
+        citation: item?.citation || "",
+        label: [item?.title, item?.citation].filter(Boolean).join(" | ")
+      })).filter((item) => item.label)
+    : [];
+  const citations = Array.isArray(safeOutput.citations)
+    ? safeOutput.citations.map((item) => ({
+        title: item?.title || "",
+        citation: item?.citation || "",
+        label: [item?.title, item?.citation].filter(Boolean).join(" | ")
+      })).filter((item) => item.label)
+    : [];
+  const bestCases = Array.isArray(safeOutput.bestCases)
+    ? safeOutput.bestCases.map((item) => ({
+        title: item?.title || "",
+        citation: item?.citation || "",
+        label: [item?.title, item?.citation].filter(Boolean).join(" | ")
+      })).filter((item) => item.label)
+    : [];
+  const relatedJudgments = Array.isArray(safeOutput.relatedJudgments)
+    ? safeOutput.relatedJudgments.map((item) => ({
+        title: item?.title || "",
+        citation: item?.citation || "",
+        label: [item?.title, item?.citation].filter(Boolean).join(" | ")
+      })).filter((item) => item.label)
+    : [];
+
+  const visibleAuthorities = [
+    ...applicableSections.map((item) => ({ title: item, citation: "", label: item, source: "applicableSections" })),
+    ...caseLaws.map((item) => ({ title: item, citation: "", label: item, source: "caseLaws" })),
+    ...retrievedAuthorities.map((item) => ({ ...item, source: "retrievedAuthorities" })),
+    ...citations.map((item) => ({ ...item, source: "citations" })),
+    ...bestCases.map((item) => ({ ...item, source: "bestCases" })),
+    ...relatedJudgments.map((item) => ({ ...item, source: "relatedJudgments" }))
+  ].filter((item, index, list) => list.findIndex((entry) => entry.label.toLowerCase() === item.label.toLowerCase()) === index);
+
+  return {
+    facts: String(facts || ""),
+    output: safeOutput,
+    applicableSections,
+    caseLaws,
+    visibleAuthorities,
+    visibleAuthorityLabels: visibleAuthorities.map((item) => item.label)
+  };
+}
+
+function buildStructuredLines(title, items = [], wantsTelugu = false) {
+  if (!items.length) {
+    return wantsTelugu
+      ? `${title}: clear items levu.`
+      : `${title}: no clear items yet.`;
+  }
+  return `${title}:\n- ${items.join("\n- ")}`;
+}
+
+function buildAuthorityDiagnosis(authorityName = "", { issueLooksCheque = false, wantsTelugu = false } = {}) {
+  const label = String(authorityName || "").trim();
+  const lower = label.toLowerCase();
+
+  if (!label) return "";
+
+  if (/article 21|maneka gandhi/.test(lower)) {
+    return wantsTelugu
+      ? [
+          `Authority: ${label}`,
+          "Current relevance: noise / irrelevant",
+          "Why it appeared: retrieval layer broad constitutional fairness / due-process authority ni pick chesindi.",
+          "Should keep?: no, usually remove cheyyali for Section 138 matter.",
+          "Better replacement: NI Act Section 138, Section 139, and cheque dishonour case law on notice, debt, and presumption."
+        ].join("\n")
+      : [
+          `Authority: ${label}`,
+          "Current relevance: noise / irrelevant",
+          "Why it appeared: the retrieval layer likely over-matched broad constitutional fairness or due-process material.",
+          "Should keep?: no, it should usually be removed for a Section 138 matter.",
+          "Better replacement: NI Act Section 138, Section 139, and cheque dishonour case law on notice, debt, and presumption."
+        ].join("\n");
+  }
+
+  if (/consumer protection/.test(lower)) {
+    return wantsTelugu
+      ? [
+          `Authority: ${label}`,
+          "Current relevance: usually irrelevant",
+          "Why it appeared: system broad service/compensation style keyword ni consumer-law side ki map chesi undachu.",
+          "Should keep?: only if the facts truly involve consumer deficiency, otherwise remove.",
+          "Better replacement: NI Act and cheque dishonour complaint / notice authorities."
+        ].join("\n")
+      : [
+          `Authority: ${label}`,
+          "Current relevance: usually irrelevant",
+          "Why it appeared: the system may have matched broad service or compensation language to consumer-law material.",
+          "Should keep?: only if the facts truly involve consumer deficiency; otherwise remove.",
+          "Better replacement: NI Act and cheque dishonour notice / complaint authorities."
+        ].join("\n");
+  }
+
+  if (/bnss section 173|fir|cognizable/.test(lower)) {
+    return wantsTelugu
+      ? [
+          `Authority: ${label}`,
+          "Current relevance: usually noise for cheque dishonour",
+          "Why it appeared: complaint / police / reporting keywords ni system over-match chesi undachu.",
+          "Should keep?: no, unless separate FIR or police refusal facts unnayi.",
+          "Better replacement: NI Act notice and complaint-compliance authorities."
+        ].join("\n")
+      : [
+          `Authority: ${label}`,
+          "Current relevance: usually noise for cheque dishonour",
+          "Why it appeared: the system likely over-matched complaint, police, or reporting terminology.",
+          "Should keep?: no, unless there are separate FIR or police-refusal facts.",
+          "Better replacement: NI Act notice and complaint-compliance authorities."
+        ].join("\n");
+  }
+
+  if (/bharatiya sakshya adhiniyam|evidence/.test(lower)) {
+    return wantsTelugu
+      ? [
+          `Authority: ${label}`,
+          "Current relevance: supporting authority, primary kaadu",
+          "Why it appeared: cheque, memo, notice service, and debt proof documents ni prove cheyyadaniki evidence layer support ga use avvachu.",
+          "Should keep?: yes, but only as supporting law.",
+          "Better placement: supporting laws section, not primary laws."
+        ].join("\n")
+      : [
+          `Authority: ${label}`,
+          "Current relevance: supporting authority, not primary",
+          "Why it appeared: it can support proof questions around the cheque, memo, notice service, and debt documents.",
+          "Should keep?: yes, but only as supporting law.",
+          "Better placement: supporting laws section, not the primary law list."
+        ].join("\n");
+  }
+
+  if (/negotiable instruments|section 138|section 139|cheque dishonour/.test(lower)) {
+    return wantsTelugu
+      ? [
+          `Authority: ${label}`,
+          "Current relevance: core / primary",
+          "Why it appeared: ee issue cheque dishonour / Section 138 NI Act matter kabatti direct ga relevant.",
+          "Should keep?: yes.",
+          "Better placement: primary laws."
+        ].join("\n")
+      : [
+          `Authority: ${label}`,
+          "Current relevance: core / primary",
+          "Why it appeared: this matter is directly about cheque dishonour / Section 138 NI Act.",
+          "Should keep?: yes.",
+          "Better placement: primary laws."
+        ].join("\n");
+  }
+
+  return wantsTelugu
+    ? [
+        `Authority: ${label}`,
+        `Current relevance: ${issueLooksCheque ? "verify carefully; may be supporting or noise" : "context-dependent"}`,
+        "Why it appeared: retrieval layer current facts ki related ani score chesi include chesi undachu.",
+        "Should keep?: verify against the actual issue before relying on it.",
+        "Better replacement: issue-specific primary law and directly matching case law."
+      ].join("\n")
+    : [
+        `Authority: ${label}`,
+        `Current relevance: ${issueLooksCheque ? "verify carefully; it may be supporting or noise" : "context-dependent"}`,
+        "Why it appeared: the retrieval layer likely scored it as related to the current facts.",
+        "Should keep?: verify it against the actual issue before relying on it.",
+        "Better replacement: issue-specific primary law and directly matching case law."
+      ].join("\n");
+}
+
+function extractAuthorityToRemove(message = "") {
+  const text = String(message || "").trim();
+  const patterns = [
+    /(?:remove|delete)\s+(.+?)\s+(?:from|nundi|authority|output|workspace|research|list)/i,
+    /(.+?)\s+(?:remove chey|remove cheyyi|delete chey|teesey|this authority remove chey)/i,
+    /(article 21|maneka gandhi|consumer protection act|bnss section 173|bharatiya sakshya adhiniyam|section 138|section 139|negotiable instruments act)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return String(match[1]).trim();
+    }
+  }
+
+  return "";
+}
+
+function formatCopilotSectionLabel(value = "") {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function adaptCopilotValidationReport(report = {}) {
+  const missingSections = Array.isArray(report.missingSections) ? report.missingSections.map(formatCopilotSectionLabel) : [];
+  const citationIssues = Array.isArray(report.citationIssues) ? report.citationIssues : [];
+  const unsupportedClaims = Array.isArray(report.unsupportedClaims) ? report.unsupportedClaims : [];
+  const suggestedFixes = Array.isArray(report.suggestedFixes) ? report.suggestedFixes : [];
+  const passed = String(report.status || "").toLowerCase() === "passed";
+  const validationScore = Math.max(35, 100 - (missingSections.length * 12) - (citationIssues.length * 8) - (unsupportedClaims.length * 8));
+
+  return {
+    validationScore,
+    validationLevel: passed ? "READY FOR REVIEW" : "REVIEW REQUIRED",
+    summary: passed
+      ? "Copilot validation found the core structure present for the current draft."
+      : "Copilot validation found section gaps or support issues that should be fixed before filing.",
+    checks: [
+      {
+        label: "Structural completeness",
+        status: missingSections.length ? "warning" : "pass",
+        detail: missingSections.length ? `Missing: ${missingSections.join(", ")}` : "Required sections detected."
+      },
+      {
+        label: "Authority support",
+        status: citationIssues.length ? "warning" : "pass",
+        detail: citationIssues[0] || "No scoped citation issue was flagged."
+      }
+    ],
+    missingSections,
+    criticalIssues: [...citationIssues, ...unsupportedClaims],
+    suggestions: suggestedFixes.length ? suggestedFixes : ["Run one final lawyer review before filing."]
+  };
+}
+
+function buildCopilotReply(message, context = {}) {
+  const normalized = String(message || "").trim();
+  if (!normalized) {
+    return "Share the matter facts, upload a screenshot, or ask me to build a working draft from the current workspace.";
+  }
+
+  const hasDraft = Boolean(context.draft);
+  const hasFacts = Boolean(context.facts);
+  const snapshot = normalizeWorkspaceSnapshot({ facts: context.facts, output: context.output });
+  const applicableSections = snapshot.applicableSections;
+  const caseLaws = snapshot.caseLaws;
+  const allAuthorities = snapshot.visibleAuthorityLabels;
+  const lower = normalized.toLowerCase();
+  const wantsTelugu = detectTeluguTone(normalized);
+  const issueLooksCheque = /cheque|check|dishonou?r|bank memo|section 138|negotiable instruments/.test(`${context.facts || ""} ${normalized}`.toLowerCase());
+  const hasArticle21 = allAuthorities.some((item) => /article 21|maneka gandhi/i.test(String(item)));
+  const noiseAuthorities = allAuthorities.filter((item) => /article 14|article 21|constitution|maneka gandhi|d\.k\. basu|lalita kumari/i.test(String(item)));
+  const niAuthorities = allAuthorities.filter((item) => /section 138|negotiable instruments|cheque|dishonou?r/i.test(String(item)));
+  const suggestedChequeReplacements = [
+    "Negotiable Instruments Act, 1881 - Section 138",
+    "Negotiable Instruments Act, 1881 - Section 139",
+    "Cheque dishonour case law on legally enforceable debt, statutory notice, and presumption"
+  ];
+  const asksPrimary = /primary laws|main laws|primary act|main act/.test(lower);
+  const asksSupporting = /supporting laws|secondary laws|supporting act/.test(lower);
+  const asksRemove = /remove|entries|irrelevant authorities|remove cheyyalsina/.test(lower);
+  const asksRewrite = /rewrite|clean research format|clean format/.test(lower);
+  const asksMissing = /missing facts|confirm cheyyalsina|facts enti|clarif/.test(lower);
+  const asksComplete = /complete information|complete ga|anni cheppu|full details/.test(lower);
+  const isMultiAsk = [asksPrimary, asksSupporting, asksRemove, asksRewrite, asksMissing, asksComplete].filter(Boolean).length >= 2;
+
+  const explicitAuthorityMatch = normalized.match(/article 21|maneka gandhi|consumer protection act|bnss section 173|bharatiya sakshya adhiniyam|section 138|section 139|negotiable instruments act/i);
+  const asksWhyIncluded = /enduku|why.*include|why.*appear|why.*came|why did ai|deniki|ela relevant/.test(lower);
+
+  if (explicitAuthorityMatch && asksWhyIncluded) {
+    return buildAuthorityDiagnosis(explicitAuthorityMatch[0], { issueLooksCheque, wantsTelugu });
+  }
+
+  if (/irrelevant authorities evi|which authorities are irrelevant/.test(lower) && issueLooksCheque) {
+    const relevantItems = [
+      "Negotiable Instruments Act, 1881 - Section 138",
+      "Negotiable Instruments Act, 1881 - Section 139",
+      "Cheque dishonour case law on notice, debt, and presumption"
+    ];
+    const irrelevantItems = [
+      "Constitution of India - Article 21 -> constitutional liberty issue kaadu",
+      "Maneka Gandhi v. Union of India -> Article 21 due-process case, Section 138 matter ki usually irrelevant",
+      "Consumer Protection Act, 2019 -> cheque dishonour matter consumer deficiency case kaadu unless distinct facts exist",
+      "BNSS Section 173 -> FIR / cognizable reporting provision, cheque notice workflow ki usually direct relation ledu"
+    ];
+    return wantsTelugu
+      ? [
+          buildStructuredLines("Relevant authorities", relevantItems, true),
+          buildStructuredLines("Irrelevant / remove cheyyalsina authorities", irrelevantItems, true)
+        ].join("\n\n")
+      : [
+          buildStructuredLines("Relevant authorities", relevantItems),
+          buildStructuredLines("Irrelevant / removable authorities", irrelevantItems)
+        ].join("\n\n");
+  }
+
+  if (isMultiAsk && issueLooksCheque) {
+    const primaryLaws = [
+      "Negotiable Instruments Act, 1881 - Section 138",
+      "Negotiable Instruments Act, 1881 - Section 139"
+    ];
+    const supportingLaws = [
+      "Evidence / proof principles only for cheque, memo, notice service, and debt documents",
+      "Procedural complaint timing and notice-compliance checks only if needed"
+    ];
+    const removeEntries = noiseAuthorities.length
+      ? noiseAuthorities.map((item) => `${item} -> cheque dishonour matter ki direct relation ledu`)
+      : ["Current visible output lo obvious irrelevant authority detect avvaledu"];
+    const missingFacts = [
+      "Cheque exact date",
+      "Dishonour / return memo date",
+      "Bank return reason",
+      "Statutory notice date",
+      "Notice service proof",
+      "Legally enforceable debt proof",
+      "15 days lopu payment jariginda leda"
+    ];
+    const cleanRewrite = [
+      "Issue: cheque dishonour / Section 138 NI Act",
+      "Primary laws: Section 138 and Section 139 NI Act",
+      "Key checks: legally enforceable debt, cheque issuance, dishonour memo, statutory notice, service, non-payment within prescribed period",
+      "Remove constitutional / FIR / consumer-law noise unless facts expressly justify them"
+    ];
+
+    return wantsTelugu
+      ? [
+          buildStructuredLines("Primary laws", primaryLaws, true),
+          buildStructuredLines("Supporting laws", supportingLaws, true),
+          buildStructuredLines("Remove cheyyalsina entries", removeEntries, true),
+          buildStructuredLines("Confirm cheyyalsina missing facts", missingFacts, true),
+          buildStructuredLines("Clean research format", cleanRewrite, true)
+        ].join("\n\n")
+      : [
+          buildStructuredLines("Primary laws", primaryLaws),
+          buildStructuredLines("Supporting laws", supportingLaws),
+          buildStructuredLines("Entries to remove", removeEntries),
+          buildStructuredLines("Missing facts to confirm", missingFacts),
+          buildStructuredLines("Clean research format", cleanRewrite)
+        ].join("\n\n");
+  }
+
+  if (/article 21|maneka gandhi/.test(lower)) {
+    if (issueLooksCheque && hasArticle21) {
+      return wantsTelugu
+        ? "Cheque dishonour / Section 138 matter lo Article 21 leda Maneka Gandhi usually relevant kaadu. Mee case lo constitutional issue leda personal liberty issue unte tappite idi noise laga consider cheyyali, remove cheyyadam better."
+        : "For a cheque dishonour / Section 138 matter, Article 21 or Maneka Gandhi usually looks irrelevant. This authority should likely be excluded unless your case specifically raises constitutional or personal-liberty issues.";
+    }
+    if (hasArticle21) {
+      return wantsTelugu
+        ? "Current workspace lo Article 21 vachindante retrieval constitutional liberty / fair procedure line nundi authority ni pick chesindi ani artham. Mee matter arrest, detention, State action, leda constitutional process gurinchi kaakapothe idi noise ayye chance ekkuva."
+        : "Article 21 appears in the current workspace because a retrieved authority is linked to life, liberty, or fair-procedure jurisprudence. If your matter is not about constitutional process, arrest, detention, or State action, this may be noise.";
+    }
+    return wantsTelugu
+      ? "Current workspace context batti Article 21 clear ga avasaram ledu. Cheque dishonour matters lo focus NI Act mariyu directly relevant cheque dishonour case law meeda undali."
+      : "Article 21 is not clearly needed from the current workspace context. For cheque dishonour matters, the focus should normally stay on the Negotiable Instruments Act and directly relevant case law.";
+  }
+
+  if (/why.*relevant|relevant aa|irrelevant|remove/.test(lower)) {
+    if (issueLooksCheque && hasArticle21) {
+      return wantsTelugu
+        ? `Current research output noisy ga undi. Ee cheque dishonour matter lo ${niAuthorities.join(", ") || "NI Act authorities"} matrame maintain cheyyi. ${noiseAuthorities.join(", ")} lanti constitutional authorities ni facts expressly justify chesthe tappite remove cheyyali.`
+        : `The current research output looks noisy. For this cheque dishonour matter, keep ${niAuthorities.join(", ") || "Section 138 NI Act and directly related cheque dishonour authorities"}; remove ${noiseAuthorities.join(", ") || "Article 21 and similar constitutional material"} unless the facts expressly justify them.`;
+    }
+    if (!allAuthorities.length && !applicableSections.length && !caseLaws.length) {
+      return wantsTelugu
+        ? "Workspace lo inka grounded research saripodu. First research run cheyyi, tarvata e authorities relevant, evi remove cheyyalo clear ga cheptha."
+        : "There is not enough grounded research in the workspace yet. Run research first, then I can tell you which authorities are relevant and which should be removed.";
+    }
+  }
+
+  if (/replace|instead|alternative|better authority|better case|em pettali/.test(lower)) {
+    if (issueLooksCheque) {
+      return wantsTelugu
+        ? `Ee matter lo better replacements: ${suggestedChequeReplacements.join(", ")}. Focus legally enforceable debt, statutory notice timeline, service proof, and presumption line meeda undali.`
+        : `Better replacements for this matter are: ${suggestedChequeReplacements.join(", ")}. The focus should stay on legally enforceable debt, statutory notice, service proof, and presumption-related case law.`;
+    }
+  }
+
+  if (/summary|workspace|current output|ippudu situation|enti present/.test(lower)) {
+    const factsLine = hasFacts ? String(context.facts).split("\n")[0].trim() : "";
+    const authorityLine = niAuthorities.slice(0, 3).join(", ") || applicableSections.slice(0, 3).join(", ");
+    return wantsTelugu
+      ? `Current workspace summary: issue "${factsLine || "facts pending"}". Relevant side lo ${authorityLine || "clear authorities inka raaledu"}. ${noiseAuthorities.length ? `Noise ga kanipistunnavi: ${noiseAuthorities.join(", ")}.` : "Obvious noise ippudu detect avvaledu."}`
+      : `Current workspace summary: issue "${factsLine || "facts pending"}". Relevant side currently points to ${authorityLine || "no clear authorities yet"}. ${noiseAuthorities.length ? `Possible noise detected: ${noiseAuthorities.join(", ")}.` : "No obvious noise is currently detected."}`;
+  }
+
+  if (/temporary draft|build draft|working draft/.test(lower)) {
+    if (hasDraft) {
+      return wantsTelugu
+        ? "Workspace lo already working draft undi. Next nenu tone refine cheyyagalanu, legal basis add cheyyagalanu, leda specific section rewrite cheyyagalanu."
+        : "A working draft already exists in the workspace. I can refine tone, add legal basis, or rewrite any section next.";
+    }
+    return hasFacts
+      ? (wantsTelugu
+          ? "Current facts ni working draft ga marchadaniki ready ga unnanu. Draft workflow run chesi result vasthe section by section refine cheddam."
+          : "I am ready to turn the current facts into a working draft. Use Run AI in the draft workflow, and I will help refine the result section by section.")
+      : (wantsTelugu
+          ? "Working draft build cheyyadaniki konchem facts kavali. Issue, dates, parties, relief enti anedi paste cheyyi."
+          : "I need at least brief matter facts before I can build a working draft. Paste the issue, dates, parties, and the relief you want.");
+  }
+
+  if (/missing facts|clarif|questions/.test(lower)) {
+    if (issueLooksCheque) {
+      return wantsTelugu
+        ? "Cheque dishonour matter ki confirm cheyyalsina key facts: cheque date, dishonour date, return reason, notice date, notice service proof, amount, legally enforceable debt proof, payment within 15 days jariginda leda."
+        : "For a cheque dishonour matter, confirm these key facts: cheque date, dishonour date, return reason, notice date, service proof, amount, proof of legally enforceable debt, and whether payment was made within 15 days.";
+    }
+    return wantsTelugu
+      ? "High-value facts confirm cheyyali: exact dates, party details, amount involved, notices already sent aa, proof unda, civil only aa leda criminal remedies kuda consider cheyyala."
+      : "High-value facts to confirm: exact dates, party details, amount involved, notices already sent, proof available, and whether you want civil-only or criminal remedies.";
+  }
+
+  if (/relevant laws|sections|laws/.test(lower)) {
+    if (issueLooksCheque && applicableSections.length) {
+      const filtered = applicableSections.filter((item) => !/article 14|article 21|constitution/i.test(String(item)));
+      return filtered.length
+        ? (wantsTelugu
+            ? `Current cheque dishonour matter lo grounded legal focus idi undali: ${filtered.join(", ")}. Constitutional authorities ikkada usually exclude cheyyali.`
+            : `For the current cheque dishonour matter, the grounded legal focus should stay on: ${filtered.join(", ")}. Constitutional authorities should usually be excluded here.`)
+        : (wantsTelugu
+            ? "Current cheque dishonour matter lo NI Act, especially Section 138 meeda focus undali. Facts justify chesthe matrame closely related supporting law add cheyyali."
+            : "For the current cheque dishonour matter, focus on the Negotiable Instruments Act, especially Section 138, and only closely related supporting law if the facts justify it.");
+    }
+    return hasFacts
+      ? (wantsTelugu
+          ? "Issue ni first primary law ki map chestha, tarvata facts justify chesthe supporting law add chestha. Research run avagane authorities ni narrow cheddam."
+          : "I will map the issue to primary law first, then supporting law only if the facts justify it. Run research from this workspace and I will help narrow the authorities.")
+      : (wantsTelugu
+          ? "Facts share chesthe primary Act, supporting provisions, mariyu case-law themes shortlist chestha."
+          : "Once you share the facts, I can shortlist the primary Act, supporting provisions, and case-law themes for this matter.");
+  }
+
+  if (/rewrite|change|revise|draft/.test(lower)) {
+    return hasDraft
+      ? (wantsTelugu
+          ? "Draft lo em change kavalo direct ga cheppu. Example: tone soft chey, legal basis add chey, criminal allegations remove chey, demand paragraph strong chey."
+          : "Tell me what to change in the draft, for example: soften tone, add legal basis, remove criminal allegations, or strengthen the demand paragraph.")
+      : (wantsTelugu
+          ? "Workspace lo inka draft ledu. Mundhu facts ivvu leda temporary draft build chey, tarvata copy-paste lekunda revise chestha."
+          : "There is no draft in the workspace yet. Share facts or build a temporary draft first, then I can revise it without copy-paste.");
+  }
+
+  if (issueLooksCheque) {
+    return wantsTelugu
+      ? `Idi cheque dishonour / Section 138 type matter laga kanipistundi. Present ga focus undalsindi NI Act, notice timeline, service proof, legally enforceable debt, mariyu presumption-related case law meeda. Specific ga adugu: "missing facts enti", "irrelevant authorities evi", "better laws evi", "draft lo em add cheyali".`
+      : `This looks like a cheque dishonour / Section 138 matter. The present focus should stay on the NI Act, notice timeline, service proof, legally enforceable debt, and presumption-related case law. You can ask specifically: "what facts are missing", "which authorities are irrelevant", "what should replace them", or "what should be added to the draft".`;
+  }
+
+  return wantsTelugu
+    ? "Current workspace batti nenu missing facts collect cheyyagalanu, next legal step suggest cheyyagalanu, relevant/irrelevant authorities explain cheyyagalanu, mariyu draft ni revise cheyyadaniki guide cheyyagalanu."
+    : "From the current workspace, I can collect missing facts, suggest the next legal step, explain which authorities are relevant or irrelevant, and guide draft revisions.";
+}
 
 const LEGACY_SECTION_MAP = [
   {
@@ -224,8 +738,13 @@ Client wants legal notice and escalation options.`,
 ];
 
 function renderList(items = []) {
-  if (!items.length) return <li>Not available</li>;
-  return items.map((item, index) => <li key={`${String(item)}-${index}`}>{item}</li>);
+  if (!items.length) return <li>No relevant case laws found.</li>;
+  return items.map((item, index) => {
+    const value = typeof item === "string"
+      ? item
+      : [item?.title, item?.citation].filter(Boolean).join(" | ") || item?.label || item?.name || "No relevant case laws found.";
+    return <li key={`${String(value)}-${index}`}>{value}</li>;
+  });
 }
 
 function toBase64(file) {
@@ -258,6 +777,11 @@ function openExternalLink(url) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function isServiceUnavailableError(error) {
+  const message = String(error?.message || error || "").trim();
+  return /failed to fetch|connection refused|err_connection_refused|unable to reach|networkerror/i.test(message);
+}
+
 function sanitizeReviewKeyPart(value) {
   return String(value || "")
     .trim()
@@ -274,6 +798,34 @@ function buildReviewEntityKey(entityType, parts = []) {
   return [sanitizeReviewKeyPart(entityType), ...normalized].filter(Boolean).join(":");
 }
 
+function buildLocalMemorySuggestions({ query = "", memories = [], caseStudies = CASE_STUDIES } = {}) {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const sourceItems = (Array.isArray(memories) && memories.length ? memories : caseStudies).map((item, index) => ({
+    id: item.id || `memory-suggestion-${index}`,
+    title: item.title || item.name || "Case memory",
+    summary: item.summary || item.facts || item.clientSummary || "No summary available.",
+    tags: Array.isArray(item.tags) && item.tags.length
+      ? item.tags
+      : Array.isArray(item.issues)
+        ? item.issues.slice(0, 4)
+        : []
+  }));
+
+  const ranked = sourceItems.map((item) => {
+    const haystack = `${item.title} ${item.summary} ${(item.tags || []).join(" ")}`.toLowerCase();
+    const score = normalizedQuery
+      ? normalizedQuery.split(/\s+/).filter(Boolean).reduce((sum, token) => sum + (haystack.includes(token) ? 1 : 0), 0)
+      : 0;
+    return { ...item, score };
+  });
+
+  return ranked
+    .filter((item) => !normalizedQuery || item.score > 0)
+    .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
+    .slice(0, 5)
+    .map(({ score, ...item }) => item);
+}
+
 function buildReviewSummaryText(output) {
   if (!output) return "";
   if (output.summary) return String(output.summary).slice(0, 400);
@@ -284,8 +836,44 @@ function buildReviewSummaryText(output) {
   return "";
 }
 
+function buildReviewFindingReasons(findings = []) {
+  return (Array.isArray(findings) ? findings : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((item) => {
+      const lower = item.toLowerCase();
+      if (/missing|not yet|absence|blank|no /.test(lower)) {
+        return { title: item, reason: "Required information or support is still missing." };
+      }
+      if (/risk|weak|contradiction|inconsistent|unsafe/.test(lower)) {
+        return { title: item, reason: "This can weaken filing quality or review confidence." };
+      }
+      if (/deadline|hearing|timeline|limitation|date/.test(lower)) {
+        return { title: item, reason: "Timing or procedural readiness needs a senior check." };
+      }
+      return { title: item, reason: "This point should be reviewed before approval." };
+    });
+}
+
 function getLocalReviewStorageKey(ownerId) {
   return `medilink-legal-reviews:${String(ownerId || "anonymous").trim()}`;
+}
+
+function getLocalReviewDraftStorageKey(ownerId) {
+  return `medilink-legal-review-drafts:${String(ownerId || "anonymous").trim()}`;
+}
+
+function getLocalSeniorSelectionStorageKey(ownerId) {
+  return `medilink-legal-senior-selection:${String(ownerId || "anonymous").trim()}`;
+}
+
+function getLocalFirmActionStorageKey(ownerId) {
+  return `medilink-legal-firm-actions:${String(ownerId || "anonymous").trim()}`;
+}
+
+function getLocalFirmPreferencesStorageKey(ownerId) {
+  return `medilink-legal-firm-preferences:${String(ownerId || "anonymous").trim()}`;
 }
 
 function readLocalReviews(ownerId) {
@@ -302,6 +890,403 @@ function readLocalReviews(ownerId) {
 function writeLocalReviews(ownerId, reviews) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(getLocalReviewStorageKey(ownerId), JSON.stringify(reviews || []));
+}
+
+function readLocalReviewDrafts(ownerId) {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(getLocalReviewDraftStorageKey(ownerId));
+    const parsed = JSON.parse(raw || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalReviewDrafts(ownerId, drafts) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(getLocalReviewDraftStorageKey(ownerId), JSON.stringify(drafts || {}));
+}
+
+function readLocalSeniorSelection(ownerId) {
+  if (typeof window === "undefined") {
+    return { selectedMatterId: "", selectedSeniorReviewKey: "" };
+  }
+  try {
+    const raw = window.localStorage.getItem(getLocalSeniorSelectionStorageKey(ownerId));
+    const parsed = JSON.parse(raw || "{}");
+    return {
+      selectedMatterId: String(parsed?.selectedMatterId || ""),
+      selectedSeniorReviewKey: String(parsed?.selectedSeniorReviewKey || "")
+    };
+  } catch {
+    return { selectedMatterId: "", selectedSeniorReviewKey: "" };
+  }
+}
+
+function writeLocalSeniorSelection(ownerId, selection = {}) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(getLocalSeniorSelectionStorageKey(ownerId), JSON.stringify({
+    selectedMatterId: String(selection.selectedMatterId || ""),
+    selectedSeniorReviewKey: String(selection.selectedSeniorReviewKey || "")
+  }));
+}
+
+function readLocalFirmActions(ownerId) {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(getLocalFirmActionStorageKey(ownerId));
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalFirmActions(ownerId, actions) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(getLocalFirmActionStorageKey(ownerId), JSON.stringify(actions || []));
+}
+
+function readLocalFirmPreferences(ownerId) {
+  if (typeof window === "undefined") {
+    return { firmQueueFilter: "all", firmQueueSort: "priority" };
+  }
+  try {
+    const raw = window.localStorage.getItem(getLocalFirmPreferencesStorageKey(ownerId));
+    const parsed = JSON.parse(raw || "{}");
+    return {
+      firmQueueFilter: String(parsed?.firmQueueFilter || "all"),
+      firmQueueSort: String(parsed?.firmQueueSort || "priority")
+    };
+  } catch {
+    return { firmQueueFilter: "all", firmQueueSort: "priority" };
+  }
+}
+
+function writeLocalFirmPreferences(ownerId, preferences = {}) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(getLocalFirmPreferencesStorageKey(ownerId), JSON.stringify({
+    firmQueueFilter: String(preferences.firmQueueFilter || "all"),
+    firmQueueSort: String(preferences.firmQueueSort || "priority")
+  }));
+}
+
+function filterAuditLogs(auditLogs = [], auditFilter = "all") {
+  if (auditFilter === "all") return auditLogs;
+  if (auditFilter === "ok") return (auditLogs || []).filter((item) => item.status === "ok");
+  if (auditFilter === "error") return (auditLogs || []).filter((item) => item.status === "error" || item.status === "blocked");
+  return (auditLogs || []).filter((item) => item.action === auditFilter);
+}
+
+function buildReviewQueue(reviewRecords = [], cases = []) {
+  const caseMap = new Map((cases || []).map((item) => [item.id, item]));
+  return (reviewRecords || [])
+    .map((item) => {
+      const matter = caseMap.get(item.matterId) || null;
+      const updatedMs = item.updatedAt?.toMillis?.() || Date.parse(item.updatedAt || "") || 0;
+      return {
+        ...item,
+        matter,
+        reviewStatus: String(item.status || "ai_draft").toLowerCase(),
+        matterLabel: item.matterTitle || matter?.title || item.entityLabel || "General workspace",
+        updatedMs,
+        riskCount: Array.isArray(item.reviewFindings) ? item.reviewFindings.length : 0
+      };
+    })
+    .sort((left, right) => {
+      const statusRank = {
+        needs_revision: 0,
+        ai_draft: 1,
+        reviewed: 2,
+        approved: 3
+      };
+      const leftRank = statusRank[left.reviewStatus] ?? 9;
+      const rightRank = statusRank[right.reviewStatus] ?? 9;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return right.updatedMs - left.updatedMs;
+    });
+}
+
+function buildSeniorReviewFacts(reviewItem = null) {
+  if (!reviewItem) return [];
+  const notes = String(reviewItem.matter?.notes || "").trim();
+  return notes
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function buildSeniorRiskFlags(reviewItem = null) {
+  if (!reviewItem) return [];
+  const outputSummary = String(reviewItem.outputSummary || "").trim();
+  const findings = Array.isArray(reviewItem.reviewFindings) ? reviewItem.reviewFindings : [];
+  const flags = [...findings];
+  if (!reviewItem.matter?.nextHearingDate) {
+    flags.push("Next hearing / deadline is missing on this matter.");
+  }
+  if (!reviewItem.reviewNotes) {
+    flags.push("No internal review note has been added yet.");
+  }
+  if (!outputSummary) {
+    flags.push("Output summary is blank, so senior review context is weak.");
+  }
+  return Array.from(new Set(flags)).slice(0, 8);
+}
+
+function buildReviewRecordPayload({
+  ownerId = "",
+  selectedMatterId = "",
+  selectedMatter = null,
+  caseTitle = "",
+  entityType = "",
+  entityKey = "",
+  entityLabel = "",
+  status = "ai_draft",
+  approvalRole = "",
+  reviewerName = "",
+  reviewNotes = "",
+  reviewFindings = [],
+  assignedReviewer = "",
+  escalationLevel = "routine",
+  partnerStatus = "pending",
+  output = null,
+  draftVersionLabel = ""
+} = {}) {
+  return {
+    ownerId,
+    matterId: selectedMatterId || selectedMatter?.id || "",
+    matterTitle: selectedMatter?.title || caseTitle || "",
+    entityType,
+    entityKey,
+    entityLabel,
+    draftVersionLabel,
+    status,
+    approvalRole,
+    reviewerName,
+    reviewNotes,
+    assignedReviewer,
+    escalationLevel,
+    partnerStatus,
+    reviewFindings: Array.isArray(reviewFindings)
+      ? reviewFindings.map((item) => String(item || "").trim()).filter(Boolean)
+      : String(reviewFindings || "").split(/\n+/).map((item) => item.trim()).filter(Boolean),
+    outputSummary: buildReviewSummaryText(output),
+    keyPoints: output?.keyFactors || output?.issueList || output?.strengths || output?.keyFacts || output?.missingSections || [],
+    traceability: output?.traceability || null
+  };
+}
+
+function buildReviewSnapshotRecord(review = {}, output = null) {
+  const traceability = output?.traceability || review?.traceability || null;
+  return {
+    id: review.id || `${review.entityType || "output"}:${review.entityKey || Date.now()}`,
+    entityType: review.entityType || "",
+    entityKey: review.entityKey || "",
+    entityLabel: review.entityLabel || review.entityType || "Output",
+    matterId: review.matterId || "",
+    matterTitle: review.matterTitle || "",
+    reviewerName: review.reviewerName || "",
+    approvalRole: review.approvalRole || "",
+    outputSummary: review.outputSummary || buildReviewSummaryText(output),
+    traceSnapshot: traceability,
+    approvedAt: review.updatedAt || new Date().toISOString()
+  };
+}
+
+function upsertReviewSnapshotList(currentSnapshots = [], snapshot = null) {
+  if (!snapshot) return currentSnapshots || [];
+  const others = (currentSnapshots || []).filter((item) => {
+    const currentId = item?.id || `${item?.entityType || ""}:${item?.entityKey || ""}`;
+    const nextId = snapshot.id || `${snapshot.entityType || ""}:${snapshot.entityKey || ""}`;
+    return currentId !== nextId;
+  });
+  return [snapshot, ...others];
+}
+
+function buildApprovedSnapshotsFromReviews(reviewRecords = []) {
+  return (Array.isArray(reviewRecords) ? reviewRecords : [])
+    .filter((item) => String(item?.status || "").trim().toLowerCase() === "approved")
+    .map((item) => buildReviewSnapshotRecord(item))
+    .sort((left, right) => {
+      const leftMs = Date.parse(left.approvedAt || "") || 0;
+      const rightMs = Date.parse(right.approvedAt || "") || 0;
+      return rightMs - leftMs;
+    });
+}
+
+function canApproveReview({ nextStatus = "", approvalRole = "" } = {}) {
+  if (String(nextStatus || "").trim().toLowerCase() !== "approved") {
+    return true;
+  }
+  return Boolean(String(approvalRole || "").trim());
+}
+
+function buildReviewStatusPresentation(status = "") {
+  const effectiveStatus = String(status || "ai_draft").toLowerCase();
+  if (effectiveStatus === "approved") {
+    return {
+      status: effectiveStatus,
+      label: "Approved",
+      style: { background: "#dff6e6", color: "#1f7a3d" }
+    };
+  }
+  if (effectiveStatus === "reviewed") {
+    return {
+      status: effectiveStatus,
+      label: "Reviewed",
+      style: { background: "#fff5d6", color: "#8a6500" }
+    };
+  }
+  if (effectiveStatus === "needs_revision") {
+    return {
+      status: effectiveStatus,
+      label: "Needs Revision",
+      style: { background: "#fde3e3", color: "#9f1d1d" }
+    };
+  }
+  return {
+    status: effectiveStatus,
+    label: "AI Draft",
+    style: { background: "#e8efff", color: "#244b8a" }
+  };
+}
+
+function buildReviewQueueSummary(reviewQueue = []) {
+  const items = Array.isArray(reviewQueue) ? reviewQueue : [];
+  return {
+    total: items.length,
+    needsRevision: items.filter((item) => item.reviewStatus === "needs_revision").length,
+    reviewed: items.filter((item) => item.reviewStatus === "reviewed").length,
+    approved: items.filter((item) => item.reviewStatus === "approved").length
+  };
+}
+
+function buildFirmDashboard({
+  reviewRecords = [],
+  reviewSnapshots = [],
+  cases = [],
+  tasks = [],
+  auditLogs = [],
+  firmActionHistory = []
+} = {}) {
+  const reviewQueue = buildReviewQueue(reviewRecords, cases);
+  const queueSummary = buildReviewQueueSummary(reviewQueue);
+  const approvedSnapshots = Array.isArray(reviewSnapshots) && reviewSnapshots.length
+    ? reviewSnapshots
+    : buildApprovedSnapshotsFromReviews(reviewRecords);
+  const pendingTasks = (Array.isArray(tasks) ? tasks : []).filter((item) => String(item?.status || "").toLowerCase() !== "done");
+  const urgentDeadlines = (Array.isArray(cases) ? cases : [])
+    .map((item) => {
+      const severity = getDateSeverity(item?.nextHearingDate || "");
+      return {
+        id: item?.id || item?.title || "",
+        title: item?.title || "Matter",
+        nextHearingDate: item?.nextHearingDate || "",
+        severity
+      };
+    })
+    .filter((item) => item.severity.diff !== null && item.severity.diff <= 7)
+    .sort((left, right) => (left.severity.diff ?? 999) - (right.severity.diff ?? 999))
+    .slice(0, 6);
+  const recentAudit = (Array.isArray(auditLogs) ? auditLogs : [])
+    .slice()
+    .sort((left, right) => {
+      const leftMs = Date.parse(left?.createdAt || left?.timestamp || "") || 0;
+      const rightMs = Date.parse(right?.createdAt || right?.timestamp || "") || 0;
+      return rightMs - leftMs;
+    })
+    .slice(0, 6);
+  const recentFirmActions = (Array.isArray(firmActionHistory) ? firmActionHistory : [])
+    .slice()
+    .sort((left, right) => (Date.parse(right?.createdAt || "") || 0) - (Date.parse(left?.createdAt || "") || 0))
+    .slice(0, 8);
+  const approvalCoverage = queueSummary.total
+    ? Math.round((approvedSnapshots.length / queueSummary.total) * 100)
+    : 0;
+
+  return {
+    queueSummary,
+    approvedSnapshots,
+    pendingTasks,
+    urgentDeadlines,
+    recentAudit,
+    recentFirmActions,
+    attentionItems: reviewQueue.filter((item) => ["needs_revision", "ai_draft"].includes(item.reviewStatus)).slice(0, 6),
+    metrics: [
+      { label: "Active Matters", value: (Array.isArray(cases) ? cases : []).length, tone: "neutral" },
+      { label: "Review Queue", value: queueSummary.total, tone: "neutral" },
+      { label: "Need Revision", value: queueSummary.needsRevision, tone: queueSummary.needsRevision ? "danger" : "ok" },
+      { label: "Pending Tasks", value: pendingTasks.length, tone: pendingTasks.length > 5 ? "warning" : "neutral" },
+      { label: "Approved", value: approvedSnapshots.length, tone: "ok" },
+      { label: "Coverage", value: `${approvalCoverage}%`, tone: approvalCoverage >= 60 ? "ok" : "warning" }
+    ],
+    routingSummary: {
+      partnerHold: reviewQueue.filter((item) => item.escalationLevel === "partner_hold").length,
+      urgent: reviewQueue.filter((item) => item.escalationLevel === "urgent").length,
+      seniorReview: reviewQueue.filter((item) => item.escalationLevel === "senior_review").length
+    }
+  };
+}
+
+function buildFirmQueueView(reviewQueue = [], attentionItems = [], { filter = "all", sort = "priority" } = {}) {
+  let items;
+  if (filter === "all") {
+    items = attentionItems;
+  } else if (filter === "urgent") {
+    items = (reviewQueue || []).filter((item) => item.escalationLevel === "urgent");
+  } else if (filter === "partner_hold") {
+    items = (reviewQueue || []).filter((item) => item.escalationLevel === "partner_hold" || item.partnerStatus === "ready_for_partner");
+  } else if (filter === "approved") {
+    items = (reviewQueue || []).filter((item) => item.reviewStatus === "approved");
+  } else if (filter === "assigned") {
+    items = (reviewQueue || []).filter((item) => String(item.assignedReviewer || "").trim());
+  } else {
+    items = attentionItems;
+  }
+
+  const next = [...(items || [])];
+  if (sort === "latest") {
+    next.sort((left, right) => (right.updatedMs || 0) - (left.updatedMs || 0));
+  } else if (sort === "risk") {
+    next.sort((left, right) => (right.riskCount || 0) - (left.riskCount || 0));
+  } else {
+    next.sort((left, right) => {
+      const statusRank = {
+        needs_revision: 0,
+        ai_draft: 1,
+        reviewed: 2,
+        approved: 3
+      };
+      const leftRank = statusRank[left.reviewStatus] ?? 9;
+      const rightRank = statusRank[right.reviewStatus] ?? 9;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return (right.updatedMs || 0) - (left.updatedMs || 0);
+    });
+  }
+  return next.slice(0, 8);
+}
+
+function buildSnapshotTraceSummary(snapshot = {}) {
+  const facts = Array.isArray(snapshot?.traceSnapshot?.factsUsed)
+    ? snapshot.traceSnapshot.factsUsed.map((entry) => entry?.label || entry).filter(Boolean)
+    : [];
+  const documents = Array.isArray(snapshot?.traceSnapshot?.documentsReviewed)
+    ? snapshot.traceSnapshot.documentsReviewed.map((entry) => entry?.title || "Document").filter(Boolean)
+    : [];
+  const authorities = Array.isArray(snapshot?.traceSnapshot?.authoritiesRelied)
+    ? snapshot.traceSnapshot.authoritiesRelied.map((entry) => entry?.title || entry?.citation || "Authority").filter(Boolean)
+    : [];
+
+  return {
+    factsLine: facts.join(" | ") || "None",
+    documentsLine: documents.join(", ") || "None",
+    authoritiesLine: authorities.join(", ") || "None",
+    hasTrace: facts.length > 0 || documents.length > 0 || authorities.length > 0
+  };
 }
 
 function getDateSeverity(value) {
@@ -342,6 +1327,130 @@ function buildChronology(rawText) {
       if (!b.date) return -1;
       return a.date.localeCompare(b.date);
     });
+}
+
+function buildMemoryResearchPrompt(memoryItem = {}) {
+  return [
+    `Memory Title: ${memoryItem.title || "Untitled memory"}`,
+    `Summary: ${memoryItem.summary || "No summary"}`,
+    Array.isArray(memoryItem.tags) && memoryItem.tags.length ? `Tags: ${memoryItem.tags.join(", ")}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function buildMatterResearchPrompt({
+  selectedMatter = null,
+  selectedMatterClient = null,
+  chronologyEntries = [],
+  selectedMatterTasks = [],
+  hearingNotes = ""
+} = {}) {
+  if (!selectedMatter) return "";
+  return [
+    `Matter: ${selectedMatter.title || "Untitled case"}`,
+    selectedMatterClient ? `Client: ${selectedMatterClient.name || "Unnamed client"} | ${selectedMatterClient.phone || "No phone"}` : "",
+    `Stage: ${selectedMatter.stage || "Draft"}`,
+    `Next Hearing: ${selectedMatter.nextHearingDate || "Not set"}`,
+    selectedMatter.notes ? `Matter Notes:\n${selectedMatter.notes}` : "",
+    chronologyEntries.length
+      ? `Chronology:\n${chronologyEntries.map((item) => `${item.date || "No date"} - ${item.event}`).join("\n")}`
+      : "",
+    selectedMatterTasks.length
+      ? `Pending Tasks:\n${selectedMatterTasks.map((item) => `- ${item.title || "Task"} (${item.dueDate || "No deadline"})`).join("\n")}`
+      : "",
+    hearingNotes ? `Hearing Notes:\n${hearingNotes}` : "",
+    "Prepare research issues, risks, and next procedural steps."
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildMatterPrepSheet({
+  selectedMatter = null,
+  selectedMatterClient = null,
+  chronologyEntries = [],
+  selectedMatterTasks = [],
+  hearingNotes = ""
+} = {}) {
+  if (!selectedMatter && !chronologyEntries.length && !selectedMatterTasks.length && !String(hearingNotes || "").trim()) {
+    return "";
+  }
+
+  return [
+    "MATTER PREP SHEET",
+    "",
+    `Matter: ${selectedMatter?.title || "Not selected"}`,
+    `Client: ${selectedMatterClient?.name || "Not linked"}`,
+    `Stage: ${selectedMatter?.stage || "Not set"}`,
+    `Next Hearing: ${selectedMatter?.nextHearingDate || "Not set"}`,
+    `Matter Notes: ${selectedMatter?.notes || "No notes added"}`,
+    "",
+    "Chronology:",
+    chronologyEntries.length
+      ? chronologyEntries.map((item) => `- ${item.date || "No date"} | ${item.event}`).join("\n")
+      : "Not prepared",
+    "",
+    "Pending Tasks:",
+    selectedMatterTasks.length
+      ? selectedMatterTasks.map((item) => `- ${item.title || "Task"} | ${item.dueDate || "No deadline"} | ${item.status || "pending"}`).join("\n")
+      : "No linked tasks",
+    "",
+    "Hearing Prep Notes:",
+    hearingNotes || "No notes added"
+  ].join("\n");
+}
+
+function buildClientUpsertPayload({ name = "", phone = "", notes = "" } = {}) {
+  return {
+    name: String(name || "").trim(),
+    phone: String(phone || "").trim(),
+    notes: String(notes || "").trim()
+  };
+}
+
+function buildCaseUpsertPayload({
+  clientId = "",
+  title = "",
+  stage = "Draft",
+  notes = "",
+  nextHearingDate = ""
+} = {}) {
+  return {
+    clientId: String(clientId || "").trim(),
+    title: String(title || "").trim(),
+    stage: String(stage || "Draft").trim() || "Draft",
+    notes: String(notes || "").trim(),
+    nextHearingDate: String(nextHearingDate || "").trim()
+  };
+}
+
+function buildTaskUpsertPayload({
+  title = "",
+  dueDate = "",
+  status = "pending",
+  relatedCaseId = ""
+} = {}) {
+  return {
+    title: String(title || "").trim(),
+    dueDate: String(dueDate || "").trim(),
+    status: String(status || "pending").trim() || "pending",
+    relatedCaseId: String(relatedCaseId || "").trim()
+  };
+}
+
+function buildTaskStatusUpdatePayload(existingTask = null, statusValue = "") {
+  if (!existingTask) return null;
+  return {
+    ...existingTask,
+    id: existingTask.id,
+    status: String(statusValue || "").trim()
+  };
+}
+
+function buildMemorySavePayload({ title = "", summary = "" } = {}) {
+  const safeTitle = String(title || "").trim();
+  return {
+    title: safeTitle,
+    summary: String(summary || "").trim(),
+    tags: safeTitle ? safeTitle.split(/\s+/).slice(0, 4) : []
+  };
 }
 
 function formatFirestoreDate(value) {
@@ -395,7 +1504,7 @@ function renderFreshnessBadge(label, level, value) {
   );
 }
 
-function renderAuthorities(authorities = [], onRevalidate = null) {
+function renderAuthorities(authorities = [], onRevalidate = null, onOpenDetails = null, onCompare = null) {
   if (!authorities.length) return <p className="muted-copy">No grounded authorities returned yet.</p>;
   return (
     <div className="law-page-grid">
@@ -406,6 +1515,16 @@ function renderAuthorities(authorities = [], onRevalidate = null) {
           {item.lastVerifiedAt ? <div className="muted-copy">Last checked: {formatFreshnessDate(item.lastVerifiedAt)}</div> : null}
           <p>{item.summary || "No summary available."}</p>
           <div className="law-inline-actions">
+            {onOpenDetails ? (
+              <button type="button" className="ghost-button" onClick={() => onOpenDetails(item)}>
+                View Details
+              </button>
+            ) : null}
+            {onCompare ? (
+              <button type="button" className="ghost-button" onClick={() => onCompare(item)}>
+                Compare
+              </button>
+            ) : null}
             {item.sourceUrl ? (
               <button type="button" className="ghost-button" onClick={() => openExternalLink(item.sourceUrl)}>
                 Open Source
@@ -832,7 +1951,7 @@ function buildLocalResearchOutput({ lawyerInput = "", memoOutput, relatedJudgmen
   return {
     caseSummary: lines[0] || memoOutput?.factSummary || "Fallback legal research summary generated from current matter context.",
     applicableSections: memoOutput?.issueList || ["Verify applicable statutory provisions"],
-    caseLaws: bestCases.length ? bestCases : ["Verify latest leading judgments"],
+    caseLaws: bestCases,
     judgmentSummary: "Working research response prepared from the current matter, memo, and matched judgments. Verify authorities before final filing or advice.",
     bestCases,
     authorityClusters,
@@ -1297,10 +2416,35 @@ function buildLocalCoverageOutput({
 
 function buildLocalDraftValidationOutput({ draftText = "", draftType = "petition", courtType = "" }) {
   const text = String(draftText || "");
-  const type = String(draftType || "petition").toLowerCase();
+  const inferredType = /legal notice|subject:|noticee|called upon|under instructions/i.test(text)
+    ? "notice"
+    : /verification|deponent|solemnly affirm/i.test(text)
+      ? "affidavit"
+      : /between|party of the first part|party of the second part|governing law/i.test(text)
+        ? "agreement"
+        : /complaint under section|complainant|accused|take cognizance|issue appropriate process/i.test(text)
+          ? "complaint"
+        : /in the court|in the hon'?ble|before the hon'?ble|petitioner|respondent|plaintiff|defendant/i.test(text)
+          ? "petition"
+          : "";
+  const type = inferredType || String(draftType || "petition").toLowerCase();
   const checks = [
-    { key: "heading", label: "Court heading present", passed: /in the court|in the hon'?ble/i.test(text), note: "Draft should begin with a proper court heading.", severity: "high" },
-    { key: "parties", label: "Party block present", passed: /versus|petitioner|plaintiff|respondent|defendant|complainant|accused/i.test(text), note: "Party names / roles should be shown clearly.", severity: "high" },
+    {
+      key: "heading",
+      label: type === "notice" ? "Notice heading present" : "Court heading present",
+      passed: type === "notice" ? /legal notice/i.test(text) : /in the court|in the hon'?ble/i.test(text),
+      note: type === "notice" ? "Notice should begin with a clear legal notice heading." : "Draft should begin with a proper court heading.",
+      severity: "high"
+    },
+    {
+      key: "parties",
+      label: "Party block present",
+      passed: type === "notice"
+        ? /from:|to:|noticee|recipient/i.test(text)
+        : /versus|petitioner|plaintiff|respondent|defendant|complainant|accused/i.test(text),
+      note: type === "notice" ? "Notice should clearly identify sender and recipient roles." : "Party names / roles should be shown clearly.",
+      severity: "high"
+    },
     { key: "facts", label: "Structured facts present", passed: /facts of the case|facts|most respectfully showeth/i.test(text), note: "Facts section should be clearly structured.", severity: "high" },
     { key: "signature", label: "Signature block present", passed: /signature block|counsel for|deponent|signed by|advocate for/i.test(text), note: "Signature / counsel block should be present.", severity: "medium" }
   ];
@@ -1317,6 +2461,14 @@ function buildLocalDraftValidationOutput({ draftText = "", draftType = "petition
     checks.push(
       { key: "subject", label: "Subject line present", passed: /subject:/i.test(text), note: "Legal notices should carry a clear subject line.", severity: "high" },
       { key: "demand", label: "Demand / compliance clause present", passed: /demand|called upon|comply within|failing which/i.test(text), note: "Notice should include a clear compliance demand and consequence clause.", severity: "high" }
+    );
+  }
+
+  if (type === "complaint") {
+    checks.push(
+      { key: "complaint-heading", label: "Complaint heading present", passed: /complaint under section|criminal complaint|private complaint/i.test(text), note: "Complaint drafts should clearly identify the complaint heading and statutory basis.", severity: "high" },
+      { key: "cause", label: "Cause of action present", passed: /cause of action/i.test(text), note: "Complaint drafts should explain why process is invoked.", severity: "high" },
+      { key: "prayer", label: "Prayer / process clause present", passed: /prayer|take cognizance|issue appropriate process|issue process/i.test(text), note: "Complaint drafts should end with a prayer or process clause.", severity: "high" }
     );
   }
 
@@ -1343,7 +2495,8 @@ function buildLocalDraftValidationOutput({ draftText = "", draftType = "petition
     criticalIssues: checks.filter((item) => !item.passed && item.severity === "high").map((item) => item.note),
     suggestions: checks.filter((item) => !item.passed).map((item) => item.note),
     courtType: String(courtType || "general"),
-    draftType: type
+    draftType: type,
+    inferredDraftType: inferredType || type
   };
 }
 
@@ -1398,6 +2551,240 @@ function buildLocalFilingPackOutput({
       badAuthorities: [],
       authorityChecks: []
     }
+  };
+}
+
+function sanitizeFilingPackOutput(response = null, { payload = {}, localSnapshot = null, draftValidation = null } = {}) {
+  const blockers = Array.isArray(response?.blockers) ? response.blockers : [];
+  const warnings = Array.isArray(response?.warnings) ? response.warnings : [];
+  const draftExists = Boolean(String(payload?.draftText || "").trim());
+  const validationAvailable = Number(draftValidation?.validationScore || 0) > 0;
+  const combinedSignals = [...blockers, ...warnings].map((item) => String(item || "").toLowerCase());
+  const contradictoryDraftSignal = combinedSignals.some((item) => (
+    /draft validation cannot run|draft text isn'?t available|draft text is not available|draft unavailable|no draft text|draft text missing|missing section before filing: draft text|draft.*missing/i.test(item)
+  ));
+  const remoteDraftValidationScore = Number(response?.componentScores?.draftValidation || 0);
+  const contradictoryValidationScore = validationAvailable && remoteDraftValidationScore > 0
+    ? remoteDraftValidationScore + 20 < Number(draftValidation?.validationScore || 0)
+    : false;
+
+  if (draftExists && validationAvailable && (contradictoryDraftSignal || contradictoryValidationScore) && localSnapshot) {
+    return localSnapshot;
+  }
+
+  return response || localSnapshot;
+}
+
+function deriveRoleAccess(account = null) {
+  const roles = Array.isArray(account?.roles) ? account.roles : [];
+  return {
+    public: roles.includes("public"),
+    lawyer: roles.includes("lawyer"),
+    senior: roles.includes("senior"),
+    firm: roles.includes("firm")
+  };
+}
+
+function selectSeniorReviewItem(reviewQueue = [], selectedMatterId = "", selectedSeniorReviewKey = "") {
+  if (!Array.isArray(reviewQueue) || !reviewQueue.length) return null;
+  const exactReview = reviewQueue.find((item) => `${item.entityType}:${item.entityKey}` === selectedSeniorReviewKey);
+  if (exactReview) return exactReview;
+  const exactMatter = reviewQueue.find((item) => item.matterId === selectedMatterId);
+  return exactMatter || reviewQueue[0];
+}
+
+function buildResearchPromptFromIntake(intakeOutput = null, intakeChronology = []) {
+  if (!intakeOutput) return "";
+  return [
+    `Matter: ${intakeOutput.matterTitle || "New matter"}`,
+    intakeOutput.clientSummary ? `Client Summary:\n${intakeOutput.clientSummary}` : "",
+    intakeOutput.factSummary ? `Fact Summary:\n${intakeOutput.factSummary}` : "",
+    intakeOutput.legalIssues?.length ? `Legal Issues:\n- ${intakeOutput.legalIssues.join("\n- ")}` : "",
+    intakeChronology.length ? `Chronology:\n${intakeChronology.map((item) => `${item.date || "No date"} - ${item.event}`).join("\n")}` : "",
+    intakeOutput.documentsRequired?.length ? `Documents Required:\n- ${intakeOutput.documentsRequired.join("\n- ")}` : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function dedupeStrings(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item, index, list) => list.findIndex((entry) => entry.toLowerCase() === item.toLowerCase()) === index);
+}
+
+function truncateWorkspaceText(value = "", limit = 12000) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (!Number.isFinite(limit) || limit <= 0 || text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n\n[truncated]`;
+}
+
+function buildWorkspaceResearchText({
+  intakeOutput = null,
+  intakeChronology = [],
+  chronologyText = "",
+  caseNotes = "",
+  intakeFacts = "",
+  lawyerInput = "",
+  selectedMatter = null,
+  selectedMatterClient = null,
+  selectedClient = null,
+  caseTitle = ""
+} = {}) {
+  const intakePrompt = buildResearchPromptFromIntake(intakeOutput, intakeChronology);
+  if (intakePrompt) {
+    return intakePrompt;
+  }
+
+  return [
+    selectedMatter?.title || caseTitle ? `Matter: ${selectedMatter?.title || caseTitle}` : "",
+    selectedMatterClient?.name || selectedClient?.name ? `Client: ${selectedMatterClient?.name || selectedClient?.name}` : "",
+    caseNotes ? `Matter Notes:\n${caseNotes}` : "",
+    intakeFacts ? `Raw Intake Facts:\n${intakeFacts}` : "",
+    chronologyText ? `Chronology:\n${chronologyText}` : "",
+    lawyerInput ? `Current Notes:\n${lawyerInput}` : ""
+  ].filter(Boolean).join("\n\n").trim();
+}
+
+function buildSharedWorkspaceState({
+  lawyerTab = "research",
+  lawyerInput = "",
+  docText = "",
+  lawyerOutput = null,
+  intakeOutput = null,
+  intakeChronology = [],
+  chronologyText = "",
+  caseNotes = "",
+  intakeFacts = "",
+  memoOutput = null,
+  noticeOutput = null,
+  selectedMatter = null,
+  selectedMatterClient = null,
+  selectedClient = null,
+  caseTitle = "",
+  caseStage = "",
+  draftType = "",
+  hearingNotes = "",
+  relatedJudgments = [],
+  selectedArgumentCases = [],
+  copilotSessionData = null
+} = {}) {
+  const currentText = String(lawyerTab === "document" ? docText : lawyerInput || "").trim();
+  const researchText = truncateWorkspaceText(buildWorkspaceResearchText({
+    intakeOutput,
+    intakeChronology,
+    chronologyText,
+    caseNotes,
+    intakeFacts,
+    lawyerInput,
+    selectedMatter,
+    selectedMatterClient,
+    selectedClient,
+    caseTitle
+  }), 12000);
+  const factsSummary = truncateWorkspaceText(
+    intakeOutput?.factSummary || caseNotes || currentText || intakeFacts || researchText,
+    6000
+  );
+  const chronologyValue = truncateWorkspaceText(
+    intakeChronology.map((item) => `${item.date || "No date"} - ${item.event || ""}`).join("\n") || chronologyText || "",
+    3000
+  );
+  const draftText = truncateWorkspaceText(lawyerOutput?.draft || noticeOutput?.noticeDraft || "", 15000);
+  const authoritySnapshot = normalizeWorkspaceSnapshot({ facts: factsSummary, output: lawyerOutput });
+  const workspaceAuthorities = dedupeStrings([
+    ...authoritySnapshot.visibleAuthorityLabels,
+    ...((memoOutput?.bestCases || []).map((item) => formatAuthorityLabel(item))),
+    ...((selectedArgumentCases || []).map((item) => formatAuthorityLabel(item))),
+    ...((relatedJudgments || []).map((item) => formatAuthorityLabel(item)))
+  ]).slice(0, 24);
+  const issues = dedupeStrings([
+    ...(Array.isArray(intakeOutput?.legalIssues) ? intakeOutput.legalIssues : []),
+    ...(Array.isArray(memoOutput?.issueList) ? memoOutput.issueList : []),
+    ...(Array.isArray(lawyerOutput?.legalIssues) ? lawyerOutput.legalIssues : [])
+  ]).slice(0, 8);
+  const matterTitle = String(selectedMatter?.title || intakeOutput?.matterTitle || caseTitle || "").trim();
+  const clientLabel = String(selectedMatterClient?.name || selectedClient?.name || "").trim();
+  const documentType = String(
+    lawyerTab === "notice"
+      ? "notice"
+      : lawyerTab === "draft"
+        ? draftType || "complaint"
+        : lawyerTab === "document"
+          ? "memo"
+          : lawyerTab === "draft-validation" || lawyerTab === "filing-pack"
+            ? draftType || ""
+            : copilotSessionData?.session?.activeDocumentType || copilotSessionData?.memory?.documentType || ""
+  ).trim();
+  const workspaceSummary = truncateWorkspaceText([
+    matterTitle ? `Matter: ${matterTitle}` : "",
+    clientLabel ? `Client: ${clientLabel}` : "",
+    factsSummary ? `Facts Summary:\n${factsSummary}` : researchText ? `Research Intake:\n${researchText}` : "",
+    issues.length ? `Issues:\n- ${issues.join("\n- ")}` : "",
+    chronologyValue ? `Chronology:\n${chronologyValue}` : "",
+    hearingNotes ? `Hearing Notes:\n${hearingNotes}` : "",
+    workspaceAuthorities.length ? `Visible Authorities:\n- ${workspaceAuthorities.join("\n- ")}` : ""
+  ].filter(Boolean).join("\n\n"), 12000);
+
+  return {
+    activeTab: lawyerTab,
+    currentText,
+    researchText,
+    factsSummary,
+    chronologyText: chronologyValue,
+    draftText,
+    issues,
+    workspaceSummary,
+    workspaceAuthorities,
+    matterTitle,
+    clientLabel,
+    jurisdiction: String(selectedMatter?.court || selectedMatter?.forum || "").trim() || "India",
+    stage: String(selectedMatter?.stage || caseStage || lawyerTab || "").trim() || null,
+    documentType: documentType || null,
+    reliefSought: String(selectedMatter?.notes || caseNotes || "").trim()
+  };
+}
+
+function buildCopilotIntakePayloadFromWorkspace(workspaceState = {}) {
+  return {
+    caseType: workspaceState.matterTitle || null,
+    factsSummary: workspaceState.factsSummary || "",
+    issues: Array.isArray(workspaceState.issues) ? workspaceState.issues : [],
+    jurisdiction: workspaceState.jurisdiction || "India",
+    stage: workspaceState.stage || null,
+    documentType: workspaceState.documentType || null,
+    parties: {
+      claimant: workspaceState.clientLabel || "",
+      respondent: ""
+    },
+    reliefSought: workspaceState.reliefSought || "",
+    workspaceSummary: workspaceState.workspaceSummary || "",
+    workspaceAuthorities: Array.isArray(workspaceState.workspaceAuthorities) ? workspaceState.workspaceAuthorities : [],
+    workspaceDraft: workspaceState.draftText || "",
+    workspaceTab: workspaceState.activeTab || ""
+  };
+}
+
+function buildWorkspaceForwardMessage({ label = "Current workspace", value = "", workspaceState = {} } = {}) {
+  const rawText = String(value || "").trim();
+  const fallbackText = rawText
+    || (label === "Matter facts" ? (workspaceState.factsSummary || workspaceState.researchText || workspaceState.workspaceSummary) : "")
+    || (label === "Current draft" ? workspaceState.draftText : "")
+    || (label === "Current references" ? (workspaceState.workspaceAuthorities || []).join("\n") : "")
+    || workspaceState.currentText
+    || workspaceState.workspaceSummary
+    || workspaceState.factsSummary;
+  const text = truncateWorkspaceText(fallbackText, 16000);
+
+  if (!text) return "";
+  return `${label}:\n${text}`;
+}
+
+function withSourceKey(output = null, sourceKey = "") {
+  if (!output) return output;
+  return {
+    ...output,
+    sourceKey
   };
 }
 
@@ -1540,6 +2927,48 @@ DEPONENT
     };
   }
 
+  if (normalizedType === "complaint") {
+    return {
+      draft:
+`IN THE COURT OF THE HON'BLE [COURT NAME]
+${normalizedMode === "editable" ? "[JURISDICTION TO BE INSERTED]" : "AT [JURISDICTION TO BE CONFIRMED]"}
+
+COMPLAINT UNDER SECTION [STATUTORY PROVISION TO BE VERIFIED]
+
+[COMPLAINANT NAME]
+Complainant
+
+VERSUS
+
+[ACCUSED NAME]
+Accused
+
+MOST RESPECTFULLY SHOWETH:
+
+FACTS OF THE CASE
+${factBlock}
+
+LEGAL BASIS
+${generalSections.map((item, index) => `${index + 1}. ${item}.`).join("\n")}
+
+CAUSE OF ACTION
+The acts and omissions stated above give rise to the present complaint and require legal process in accordance with law.
+
+PRAYER
+${normalizedMode === "editable"
+  ? "[PRAYER / PROCESS CLAUSE TO BE INSERTED]"
+  : "It is therefore prayed that this Hon'ble Court may be pleased to take cognizance / issue appropriate process and grant consequential relief in accordance with law."}
+
+PLACE:
+DATE:
+
+COUNSEL FOR THE COMPLAINANT
+[SIGNATURE BLOCK]`,
+      mode: normalizedMode,
+      sections: generalSections
+    };
+  }
+
   return {
     draft:
 `IN THE COURT OF THE HON'BLE [COURT NAME]
@@ -1584,13 +3013,19 @@ COUNSEL FOR THE PETITIONER / PLAINTIFF
 function LawAssistantPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const voiceRecognitionRef = useRef(null);
+  const reviewRecordsRef = useRef([]);
 
   const account = getStoredAccount();
   const publicProfile = getStoredProfile("public");
   const lawyerProfile = getStoredProfile("lawyer");
 
   const queryMode = searchParams.get("mode");
-  const [mode, setMode] = useState(queryMode === "lawyer" ? "lawyer" : "public");
+  const normalizeWorkspaceMode = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    return ["public", "lawyer", "senior", "firm"].includes(normalized) ? normalized : "public";
+  };
+  const [mode, setMode] = useState(normalizeWorkspaceMode(queryMode));
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -1624,13 +3059,34 @@ function LawAssistantPage() {
   const [coverageOutput, setCoverageOutput] = useState(null);
   const [draftValidationOutput, setDraftValidationOutput] = useState(null);
   const [filingPackOutput, setFilingPackOutput] = useState(null);
+  const [lastFilingPackAutoSyncKey, setLastFilingPackAutoSyncKey] = useState("");
   const [authorityGuardrails, setAuthorityGuardrails] = useState({ status: "CLEAR", blockingWarnings: [], cautionWarnings: [], reviewedAuthorities: [] });
   const [reviewRecords, setReviewRecords] = useState([]);
   const [reviewSnapshots, setReviewSnapshots] = useState([]);
   const [reviewDrafts, setReviewDrafts] = useState({});
+  const [reviewSyncMode, setReviewSyncMode] = useState("remote");
+  const [firmActionHistory, setFirmActionHistory] = useState([]);
+  const [firmQueueFilter, setFirmQueueFilter] = useState("all");
+  const [firmQueueSort, setFirmQueueSort] = useState("priority");
   const [noticeOutput, setNoticeOutput] = useState(null);
   const [lawyerExtractionMeta, setLawyerExtractionMeta] = useState(null);
   const [lawyerOutput, setLawyerOutput] = useState(null);
+  const [copilotChatOpen, setCopilotChatOpen] = useState(false);
+  const [copilotMessages, setCopilotMessages] = useState([
+    {
+      id: "copilot-welcome",
+      role: "assistant",
+      text: "Law related ga em kavalo direct ga adugu. Nenu straight ga reply istha."
+    }
+  ]);
+  const [copilotInput, setCopilotInput] = useState("");
+  const [copilotAttachmentMeta, setCopilotAttachmentMeta] = useState(null);
+  const [copilotSessionId, setCopilotSessionId] = useState("");
+  const [copilotSessionData, setCopilotSessionData] = useState(null);
+  const [copilotAllowedActions, setCopilotAllowedActions] = useState([]);
+  const [copilotSessionBusy, setCopilotSessionBusy] = useState(false);
+  const [copilotDraftMeta, setCopilotDraftMeta] = useState(null);
+  const [copilotBackendUnavailable, setCopilotBackendUnavailable] = useState(false);
 
   const [clients, setClients] = useState([]);
   const [cases, setCases] = useState([]);
@@ -1678,18 +3134,75 @@ function LawAssistantPage() {
   const [auditFilter, setAuditFilter] = useState("all");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [selectedMatterId, setSelectedMatterId] = useState("");
+  const [selectedSeniorReviewKey, setSelectedSeniorReviewKey] = useState("");
   const [chronologyText, setChronologyText] = useState("");
   const [hearingNotes, setHearingNotes] = useState("");
 
   const ownerId = account?.uid || "anonymous";
+  const selectedMatter = useMemo(
+    () => (cases || []).find((item) => item.id === selectedMatterId) || null,
+    [cases, selectedMatterId]
+  );
+  const selectedClient = useMemo(
+    () => (clients || []).find((item) => item.id === selectedClientId) || null,
+    [clients, selectedClientId]
+  );
+  const selectedMatterClient = useMemo(
+    () => (clients || []).find((item) => item.id === selectedMatter?.clientId) || null,
+    [clients, selectedMatter?.clientId]
+  );
+  const sharedWorkspaceState = useMemo(() => buildSharedWorkspaceState({
+    lawyerTab,
+    lawyerInput,
+    docText,
+    lawyerOutput,
+    intakeOutput,
+    intakeChronology,
+    chronologyText,
+    caseNotes,
+    intakeFacts,
+    memoOutput,
+    noticeOutput,
+    selectedMatter,
+    selectedMatterClient,
+    selectedClient,
+    caseTitle,
+    caseStage,
+    draftType,
+    hearingNotes,
+    relatedJudgments,
+    copilotSessionData
+  }), [
+    lawyerTab,
+    lawyerInput,
+    docText,
+    lawyerOutput,
+    intakeOutput,
+    intakeChronology,
+    chronologyText,
+    caseNotes,
+    intakeFacts,
+    memoOutput,
+    noticeOutput,
+    selectedMatter,
+    selectedMatterClient,
+    selectedClient,
+    caseTitle,
+    caseStage,
+    draftType,
+    hearingNotes,
+    relatedJudgments,
+    copilotSessionData
+  ]);
+  const copilotContext = useMemo(() => ({
+    facts: sharedWorkspaceState.factsSummary || sharedWorkspaceState.researchText,
+    draft: sharedWorkspaceState.draftText,
+    output: lawyerOutput,
+    tab: lawyerTab
+  }), [sharedWorkspaceState.draftText, sharedWorkspaceState.factsSummary, sharedWorkspaceState.researchText, lawyerOutput, lawyerTab]);
+  const showCopilotStarters = copilotMessages.length <= 1;
 
-  const hasRole = useMemo(() => {
-    const roles = account?.roles || [];
-    return {
-      public: roles.includes("public"),
-      lawyer: roles.includes("lawyer")
-    };
-  }, [account]);
+  const hasRole = useMemo(() => deriveRoleAccess(account), [account]);
 
   const aiUsage = Number(subscription?.monthlyUsage || 0);
   const aiLimit = Number(subscription?.monthlyLimit || 0);
@@ -1719,17 +3232,13 @@ function LawAssistantPage() {
 
     return [...caseAlerts, ...taskAlerts].slice(0, 8);
   }, [cases, tasks]);
-  const selectedMatter = useMemo(
-    () => (cases || []).find((item) => item.id === selectedMatterId) || null,
-    [cases, selectedMatterId]
+  const copilotContextPacket = useMemo(
+    () => copilotSessionData?.memory?.contextPacket || { sections: [], judgments: [], authoritiesSummary: "" },
+    [copilotSessionData]
   );
-  const selectedClient = useMemo(
-    () => (clients || []).find((item) => item.id === selectedClientId) || null,
-    [clients, selectedClientId]
-  );
-  const selectedMatterClient = useMemo(
-    () => (clients || []).find((item) => item.id === selectedMatter?.clientId) || null,
-    [clients, selectedMatter?.clientId]
+  const copilotIntakePayload = useMemo(
+    () => buildCopilotIntakePayloadFromWorkspace(sharedWorkspaceState),
+    [sharedWorkspaceState]
   );
   const chronologyEntries = useMemo(
     () => buildChronology(chronologyText),
@@ -1753,12 +3262,7 @@ function LawAssistantPage() {
   const usageSummary = billingConfig.enabled
     ? `Usage ${aiUsage}/${aiLimit || "--"}`
     : `Free trial check mode | Usage ${aiUsage}/${aiLimit || "--"}`;
-  const filteredAuditLogs = useMemo(() => {
-    if (auditFilter === "all") return auditLogs;
-    if (auditFilter === "ok") return (auditLogs || []).filter((item) => item.status === "ok");
-    if (auditFilter === "error") return (auditLogs || []).filter((item) => item.status === "error" || item.status === "blocked");
-    return (auditLogs || []).filter((item) => item.action === auditFilter);
-  }, [auditFilter, auditLogs]);
+  const filteredAuditLogs = useMemo(() => filterAuditLogs(auditLogs, auditFilter), [auditFilter, auditLogs]);
   const todayQueue = useMemo(() => {
     const urgentTasks = (tasks || [])
       .filter((item) => item.status !== "done")
@@ -1870,6 +3374,43 @@ function LawAssistantPage() {
     if (judgments.length) return judgments.slice(0, 5);
     return [];
   }, [relatedJudgments, memoOutput, judgments]);
+  const draftValidationStateKey = useMemo(() => JSON.stringify({
+    draft: sharedWorkspaceState.draftText || sharedWorkspaceState.currentText || "",
+    facts: sharedWorkspaceState.factsSummary || "",
+    issues: sharedWorkspaceState.issues.join("|"),
+    draftType,
+    courtType: draftCourtType
+  }), [
+    sharedWorkspaceState.currentText,
+    sharedWorkspaceState.draftText,
+    sharedWorkspaceState.factsSummary,
+    sharedWorkspaceState.issues,
+    draftType,
+    draftCourtType
+  ]);
+  const filingPackAutoSyncKey = useMemo(() => JSON.stringify({
+    tab: lawyerTab,
+    facts: sharedWorkspaceState.factsSummary || "",
+    draft: sharedWorkspaceState.draftText || "",
+    issues: sharedWorkspaceState.issues.join("|"),
+    validation: draftValidationOutput?.validationScore || 0,
+    readiness: readinessOutput?.readinessScore || 0,
+    consistency: consistencyOutput?.consistencyScore || 0,
+    coverage: coverageOutput?.coverageScore || 0,
+    chronology: sharedWorkspaceState.chronologyText || "",
+    selectedCases: selectedArgumentCases.map((item) => item?.canonicalCaseId || item?.id || item?.citation || item?.title || "").join("|")
+  }), [
+    lawyerTab,
+    sharedWorkspaceState.factsSummary,
+    sharedWorkspaceState.draftText,
+    sharedWorkspaceState.issues,
+    sharedWorkspaceState.chronologyText,
+    draftValidationOutput,
+    readinessOutput,
+    consistencyOutput,
+    coverageOutput,
+    selectedArgumentCases
+  ]);
   const argumentIssues = useMemo(() => {
     if (memoOutput?.issueList?.length) return memoOutput.issueList;
     if (intakeOutput?.legalIssues?.length) return intakeOutput.legalIssues;
@@ -1911,6 +3452,36 @@ function LawAssistantPage() {
     () => buildReviewEntityKey("draft_output", [selectedMatterId || selectedMatter?.id || "workspace", draftType || "draft", draftMode || "court-ready"]),
     [draftMode, draftType, selectedMatter?.id, selectedMatterId]
   );
+  const reviewQueue = useMemo(() => buildReviewQueue(reviewRecords, cases), [cases, reviewRecords]);
+  const reviewQueueSummary = useMemo(() => buildReviewQueueSummary(reviewQueue), [reviewQueue]);
+  const firmDashboard = useMemo(
+    () => buildFirmDashboard({ reviewRecords, reviewSnapshots, cases, tasks, auditLogs, firmActionHistory }),
+    [reviewRecords, reviewSnapshots, cases, tasks, auditLogs, firmActionHistory]
+  );
+  const seniorSelectedReview = useMemo(
+    () => selectSeniorReviewItem(reviewQueue, selectedMatterId, selectedSeniorReviewKey),
+    [reviewQueue, selectedMatterId, selectedSeniorReviewKey]
+  );
+  const firmSelectedReview = useMemo(
+    () => selectSeniorReviewItem(reviewQueue, selectedMatterId, selectedSeniorReviewKey),
+    [reviewQueue, selectedMatterId, selectedSeniorReviewKey]
+  );
+  const firmSelectedReviewStateKey = firmSelectedReview ? `${firmSelectedReview.entityType}:${firmSelectedReview.entityKey}` : "";
+  const firmSelectedDraft = firmSelectedReviewStateKey ? (reviewDrafts[firmSelectedReviewStateKey] || {}) : {};
+  const firmSelectedStatusPresentation = useMemo(
+    () => buildReviewStatusPresentation(firmSelectedReview?.status || "ai_draft"),
+    [firmSelectedReview?.status]
+  );
+  const filteredFirmAttentionItems = useMemo(
+    () => buildFirmQueueView(reviewQueue, firmDashboard.attentionItems, { filter: firmQueueFilter, sort: firmQueueSort }),
+    [reviewQueue, firmDashboard.attentionItems, firmQueueFilter, firmQueueSort]
+  );
+  const seniorReviewFacts = useMemo(() => buildSeniorReviewFacts(seniorSelectedReview), [seniorSelectedReview]);
+  const seniorRiskFlags = useMemo(() => buildSeniorRiskFlags(seniorSelectedReview), [seniorSelectedReview]);
+  const seniorRiskDetails = useMemo(
+    () => buildReviewFindingReasons(seniorRiskFlags),
+    [seniorRiskFlags]
+  );
   const visibleArgumentSections = useMemo(() => (
     argumentSide === "respondent"
       ? argumentOutput?.respondentArguments || []
@@ -1937,6 +3508,11 @@ function LawAssistantPage() {
   useEffect(() => {
     let active = true;
 
+    if (LOCAL_COPILOT_ONLY) {
+      setAuthorityGuardrails({ status: "CLEAR", blockingWarnings: [], cautionWarnings: [], reviewedAuthorities: [] });
+      return undefined;
+    }
+
     if (!selectedArgumentCases.length) {
       setAuthorityGuardrails({ status: "CLEAR", blockingWarnings: [], cautionWarnings: [], reviewedAuthorities: [] });
       return undefined;
@@ -1957,30 +3533,61 @@ function LawAssistantPage() {
     };
   }, [selectedArgumentCases]);
 
-  useEffect(() => {
-    const nextMode = queryMode === "lawyer" ? "lawyer" : "public";
-    setMode(nextMode);
-  }, [queryMode]);
+  useEffect(() => () => {
+    if (voiceRecognitionRef.current) {
+      try {
+        voiceRecognitionRef.current.stop();
+      } catch {
+        // Ignore shutdown failures for speech-recognition cleanup.
+      }
+      voiceRecognitionRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
-    if (mode === "lawyer" && hasRole.lawyer) {
+    const nextMode = normalizeWorkspaceMode(queryMode);
+    if (nextMode === "lawyer" && mode !== "lawyer") {
+      setLawyerTab("workflow");
+      setCitationView(null);
+      setCitationExpanded({});
+    }
+    setMode(nextMode);
+  }, [mode, queryMode]);
+
+  useEffect(() => {
+    if ((mode === "lawyer" || mode === "senior" || mode === "firm") && (hasRole.lawyer || hasRole.senior || hasRole.firm)) {
+      if (LOCAL_COPILOT_ONLY) {
+        setStatus(
+          mode === "senior"
+            ? "Local senior review mode is ready."
+            : mode === "firm"
+              ? "Local firm command mode is ready."
+              : "Local copilot-only mode is ready."
+        );
+        return;
+      }
       hydrateLawyerData();
     }
     if (mode === "public" && hasRole.public) {
       setStatus("Public legal guidance mode is ready.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, hasRole.lawyer, hasRole.public]);
+  }, [mode, hasRole.firm, hasRole.lawyer, hasRole.public, hasRole.senior]);
 
   useEffect(() => {
-    if (mode === "lawyer" && hasRole.lawyer) {
+    if ((mode === "lawyer" || mode === "senior" || mode === "firm") && (hasRole.lawyer || hasRole.senior || hasRole.firm)) {
+      if (LOCAL_COPILOT_ONLY) return;
       hydrateLawyerData();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [judgmentQuery, judgmentCourt, judgmentStatus, judgmentDateWindow]);
+  }, [judgmentQuery, judgmentCourt, judgmentStatus, judgmentDateWindow, mode, hasRole.firm, hasRole.lawyer, hasRole.senior]);
 
   useEffect(() => {
     const loadRelatedJudgments = async () => {
+      if (LOCAL_COPILOT_ONLY) {
+        setRelatedJudgments([]);
+        return;
+      }
       if (!hasRole.lawyer || mode !== "lawyer") return;
       if (!judgmentContextText.trim()) {
         setRelatedJudgments([]);
@@ -1995,14 +3602,31 @@ function LawAssistantPage() {
         });
         setRelatedJudgments(response.judgments || []);
       } catch {
-        setRelatedJudgments([]);
+        setRelatedJudgments(buildLocalJudgmentMatches({ intakeOutput, memoOutput }));
       }
     };
 
     loadRelatedJudgments();
-  }, [hasRole.lawyer, judgmentContextText, mode, ownerId]);
+  }, [hasRole.lawyer, intakeOutput, judgmentContextText, memoOutput, mode, ownerId]);
 
   const hydrateLawyerData = async () => {
+    if (LOCAL_COPILOT_ONLY) {
+      setClients([]);
+      setCases([]);
+      setTasks([]);
+      setJudgments([]);
+      setReviewRecords([]);
+      setReviewSnapshots([]);
+      setJudgmentSyncStatus(null);
+      setJudgmentSources([]);
+      setSubscription(null);
+      setBillingConfig({ enabled: false, keyId: "" });
+      setSavedMemories([]);
+      setSavedDrafts([]);
+      setStatus("Local copilot-only mode is ready.");
+      return;
+    }
+
     try {
       const results = await Promise.allSettled([
         runLegalAction("clients_list", { ownerId }),
@@ -2040,6 +3664,10 @@ function LawAssistantPage() {
       const sourceRegistryResponse = read(10, { sources: [], templates: [] });
       const reviewsResponse = read(11, { reviews: readLocalReviews(ownerId) });
       const snapshotsResponse = read(12, { snapshots: [] });
+      const normalizedReviews = reviewsResponse.reviews || [];
+      const normalizedSnapshots = snapshotsResponse.snapshots?.length
+        ? snapshotsResponse.snapshots
+        : buildApprovedSnapshotsFromReviews(normalizedReviews);
 
       setClients(clientResponse.clients || []);
       setCases(caseResponse.cases || []);
@@ -2054,16 +3682,21 @@ function LawAssistantPage() {
       setJudgmentTemplates(sourceRegistryResponse.templates || syncStatusResponse.templates || []);
       setSubscription(subscriptionResponse.subscription || null);
       setAuditLogs(auditResponse.logs || []);
-      setReviewRecords(reviewsResponse.reviews || []);
-      setReviewSnapshots(snapshotsResponse.snapshots || []);
+      setReviewRecords(normalizedReviews);
+      setReviewSnapshots(normalizedSnapshots);
       setBillingConfig({
         enabled: Boolean(billingResponse.enabled),
         keyId: billingResponse.keyId || ""
       });
       const failedCount = results.filter((item) => item.status === "rejected").length;
-      setStatus(failedCount ? "" : "Lawyer workspace loaded.");
+      const mainWorkspaceReady = [0, 1, 2, 8, 9, 10].every((index) => results[index]?.status === "fulfilled");
+      if (mainWorkspaceReady) {
+        setStatus(failedCount ? "Lawyer workspace loaded. Some optional panels could not be refreshed." : "Lawyer workspace loaded.");
+      } else {
+        setStatus("Lawyer workspace loaded in local fallback mode.");
+      }
     } catch {
-      setStatus("");
+      setStatus("Lawyer workspace loaded in local fallback mode.");
     }
   };
 
@@ -2076,6 +3709,55 @@ function LawAssistantPage() {
       }
     }
   }, [ownerId, reviewRecords.length]);
+
+  useEffect(() => {
+    reviewRecordsRef.current = Array.isArray(reviewRecords) ? reviewRecords : [];
+  }, [reviewRecords]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    setReviewDrafts(readLocalReviewDrafts(ownerId));
+    const persistedSelection = readLocalSeniorSelection(ownerId);
+    setFirmActionHistory(readLocalFirmActions(ownerId));
+    const persistedFirmPreferences = readLocalFirmPreferences(ownerId);
+    setFirmQueueFilter(persistedFirmPreferences.firmQueueFilter);
+    setFirmQueueSort(persistedFirmPreferences.firmQueueSort);
+    setSelectedSeniorReviewKey(persistedSelection.selectedSeniorReviewKey);
+    setSelectedMatterId((current) => current || persistedSelection.selectedMatterId || "");
+  }, [ownerId]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    writeLocalReviewDrafts(ownerId, reviewDrafts);
+  }, [ownerId, reviewDrafts]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    writeLocalSeniorSelection(ownerId, { selectedMatterId, selectedSeniorReviewKey });
+  }, [ownerId, selectedMatterId, selectedSeniorReviewKey]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    writeLocalFirmActions(ownerId, firmActionHistory);
+  }, [ownerId, firmActionHistory]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    writeLocalFirmPreferences(ownerId, { firmQueueFilter, firmQueueSort });
+  }, [ownerId, firmQueueFilter, firmQueueSort]);
+
+  const appendFirmAction = useCallback((entry = {}) => {
+    if (!ownerId) return;
+    setFirmActionHistory((current) => ([
+      {
+        id: entry.id || `${entry.action || "firm-action"}:${Date.now()}`,
+        createdAt: entry.createdAt || new Date().toISOString(),
+        actor: entry.actor || account?.name || lawyerProfile?.name || "Firm User",
+        ...entry
+      },
+      ...(current || [])
+    ].slice(0, 40)));
+  }, [account?.name, lawyerProfile?.name, ownerId]);
 
   const getReviewRecord = (entityType, entityKey) => (
     (reviewRecords || []).find((item) => item.entityType === entityType && item.entityKey === entityKey) || null
@@ -2092,30 +3774,91 @@ function LawAssistantPage() {
     }));
   };
 
-  const saveReviewRecord = async ({ entityType, entityKey, entityLabel, output, status: nextStatus }) => {
+  const upsertReviewRecordLocally = useCallback((review) => {
+    if (!review?.entityType || !review?.entityKey) return review;
+    setReviewRecords((current) => {
+      const others = (current || []).filter((item) => !(item.entityType === review.entityType && item.entityKey === review.entityKey));
+      const next = [review, ...others];
+      writeLocalReviews(ownerId, next);
+      return next;
+    });
+    return review;
+  }, [ownerId]);
+
+  const saveReviewRecord = async ({ entityType, entityKey, entityLabel, output, status: nextStatus, draftOverrides = null }) => {
     const stateKey = `${entityType}:${entityKey}`;
-    const draft = reviewDrafts[stateKey] || {};
+    const draft = {
+      ...(reviewDrafts[stateKey] || {}),
+      ...(draftOverrides || {})
+    };
+    const existingReview = getReviewRecord(entityType, entityKey);
     const approvalRole = String(draft.approvalRole || "").trim().toLowerCase();
 
-    if (nextStatus === "approved" && !approvalRole) {
+    if (!canApproveReview({ nextStatus, approvalRole })) {
       setStatus("Select an approval role before marking this output as approved.");
       return;
     }
 
-      const payload = {
+      const payload = buildReviewRecordPayload({
         ownerId,
-      matterId: selectedMatterId || selectedMatter?.id || "",
-      entityType,
-      entityKey,
-      entityLabel,
-      status: nextStatus,
+        selectedMatterId,
+        selectedMatter,
+        caseTitle,
+        entityType,
+        entityKey,
+        entityLabel,
+        status: nextStatus,
         approvalRole,
-        reviewerName: draft.reviewerName || account?.displayName || lawyerProfile?.name || "Lawyer",
-        reviewNotes: draft.reviewNotes || "",
-        outputSummary: buildReviewSummaryText(output),
-        keyPoints: output?.keyFactors || output?.issueList || output?.strengths || output?.keyFacts || [],
-        traceability: output?.traceability || null
-      };
+      reviewerName: draft.reviewerName || account?.displayName || lawyerProfile?.name || "Lawyer",
+      reviewNotes: draft.reviewNotes || "",
+      reviewFindings: draft.reviewFindings || "",
+      assignedReviewer: draft.assignedReviewer || existingReview?.assignedReviewer || "",
+      escalationLevel: draft.escalationLevel || existingReview?.escalationLevel || "routine",
+      partnerStatus: draft.partnerStatus || existingReview?.partnerStatus || (nextStatus === "approved" && approvalRole === "partner" ? "partner_approved" : "pending"),
+      output
+    });
+
+    const fallbackReview = {
+      ...payload,
+      id: `${entityType}:${entityKey}`,
+      updatedAt: new Date().toISOString()
+    };
+
+    const persistLocalReview = () => {
+      upsertReviewRecordLocally(fallbackReview);
+      setReviewDrafts((current) => ({
+        ...current,
+        [stateKey]: {
+          reviewerName: fallbackReview.reviewerName || payload.reviewerName || "",
+          reviewNotes: fallbackReview.reviewNotes || payload.reviewNotes || "",
+          reviewFindings: Array.isArray(fallbackReview.reviewFindings) ? fallbackReview.reviewFindings.join("\n") : payload.reviewFindings.join("\n"),
+          approvalRole: fallbackReview.approvalRole || approvalRole || "",
+          assignedReviewer: fallbackReview.assignedReviewer || payload.assignedReviewer || "",
+          escalationLevel: fallbackReview.escalationLevel || payload.escalationLevel || "routine",
+          partnerStatus: fallbackReview.partnerStatus || payload.partnerStatus || "pending"
+        }
+      }));
+      appendFirmAction({
+        action: nextStatus === "approved" ? "review_approved" : nextStatus === "reviewed" ? "review_routed" : "review_saved_local",
+        entityType,
+        entityKey,
+        entityLabel,
+        status: nextStatus,
+        assignedReviewer: fallbackReview.assignedReviewer || payload.assignedReviewer || "",
+        escalationLevel: fallbackReview.escalationLevel || payload.escalationLevel || "routine",
+        partnerStatus: fallbackReview.partnerStatus || payload.partnerStatus || "pending"
+      });
+      if (nextStatus === "approved") {
+        const localSnapshot = buildReviewSnapshotRecord(fallbackReview, output);
+        setReviewSnapshots((current) => upsertReviewSnapshotList(current, localSnapshot));
+      }
+      setStatus(`Review saved locally: ${nextStatus.replace("_", " ").toUpperCase()}.`);
+    };
+
+    if (reviewSyncMode === "local") {
+      persistLocalReview();
+      return;
+    }
 
     try {
       const response = await saveLegalReview(payload);
@@ -2126,56 +3869,142 @@ function LawAssistantPage() {
         writeLocalReviews(ownerId, next);
         return next;
       });
+      setReviewDrafts((current) => ({
+        ...current,
+        [stateKey]: {
+          reviewerName: review.reviewerName || payload.reviewerName || "",
+          reviewNotes: review.reviewNotes || payload.reviewNotes || "",
+          reviewFindings: Array.isArray(review.reviewFindings) ? review.reviewFindings.join("\n") : payload.reviewFindings.join("\n"),
+          approvalRole: review.approvalRole || approvalRole || "",
+          assignedReviewer: review.assignedReviewer || payload.assignedReviewer || "",
+          escalationLevel: review.escalationLevel || payload.escalationLevel || "routine",
+          partnerStatus: review.partnerStatus || payload.partnerStatus || "pending"
+        }
+      }));
+      appendFirmAction({
+        action: nextStatus === "approved" ? "review_approved" : nextStatus === "reviewed" ? "review_routed" : "review_saved",
+        entityType,
+        entityKey,
+        entityLabel,
+        status: nextStatus,
+        assignedReviewer: review.assignedReviewer || payload.assignedReviewer || "",
+        escalationLevel: review.escalationLevel || payload.escalationLevel || "routine",
+        partnerStatus: review.partnerStatus || payload.partnerStatus || "pending"
+      });
       setStatus(`Review status updated: ${nextStatus.replace("_", " ").toUpperCase()}.`);
       if (nextStatus === "approved") {
         const snapshotResponse = await listLegalReviewSnapshots({ ownerId, matterId: selectedMatterId || selectedMatter?.id || "" }).catch(() => null);
         if (snapshotResponse?.snapshots) {
           setReviewSnapshots(snapshotResponse.snapshots);
+        } else {
+          const localSnapshot = buildReviewSnapshotRecord(review, output);
+          setReviewSnapshots((current) => upsertReviewSnapshotList(current, localSnapshot));
         }
       }
     } catch {
-      const fallbackReview = {
-        ...payload,
-        id: `${entityType}:${entityKey}`,
-        updatedAt: new Date().toISOString()
-      };
+      setReviewSyncMode("local");
+      persistLocalReview();
+    }
+  };
+
+  const autoUpsertReviewRecord = useCallback(async ({
+    entityType,
+    entityKey,
+    entityLabel,
+    output,
+    status = "ai_draft",
+    reviewNotes = "",
+    reviewFindings = [],
+    draftVersionLabel = ""
+  }) => {
+    if (!entityType || !entityKey || !output) return;
+
+    const existing = (reviewRecordsRef.current || []).find((item) => item.entityType === entityType && item.entityKey === entityKey) || null;
+    const inferredDraftVersionLabel = draftVersionLabel || (() => {
+      if (!["draft_output", "draft_validation", "filing_pack"].includes(entityType)) return "";
+      const matchingDrafts = (savedDrafts || []).filter((item) => {
+        const sameMatter = String(item.relatedCaseId || "").trim() === String(selectedMatterId || selectedMatter?.id || "").trim();
+        const sameType = String(item.draftType || "").trim().toLowerCase() === String(draftType || "").trim().toLowerCase();
+        return sameMatter && sameType;
+      });
+      return matchingDrafts.length ? `v${matchingDrafts.length}` : "v1";
+    })();
+    const normalizedStatus = String(existing?.status || status || "ai_draft").trim().toLowerCase();
+    const normalizedFindings = Array.isArray(reviewFindings)
+      ? reviewFindings.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+
+    const payload = buildReviewRecordPayload({
+      ownerId,
+      selectedMatterId,
+      selectedMatter,
+      caseTitle,
+      entityType,
+      entityKey,
+      entityLabel,
+      draftVersionLabel: existing?.draftVersionLabel || inferredDraftVersionLabel,
+      status: normalizedStatus === "approved" ? "reviewed" : normalizedStatus,
+      approvalRole: existing?.approvalRole || "",
+      reviewerName: existing?.reviewerName || account?.displayName || lawyerProfile?.name || "Lawyer",
+      reviewNotes: existing?.reviewNotes || reviewNotes || "",
+      reviewFindings: existing?.reviewFindings?.length ? existing.reviewFindings : normalizedFindings,
+      output
+    });
+
+    const fallbackReview = {
+      ...payload,
+      id: `${entityType}:${entityKey}`,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (reviewSyncMode === "local") {
+      upsertReviewRecordLocally(fallbackReview);
+      return;
+    }
+
+    try {
+      const response = await saveLegalReview(payload);
+      const review = response.review || payload;
       setReviewRecords((current) => {
         const others = (current || []).filter((item) => !(item.entityType === entityType && item.entityKey === entityKey));
-        const next = [fallbackReview, ...others];
+        const next = [review, ...others];
         writeLocalReviews(ownerId, next);
         return next;
       });
-      setStatus(`Review saved locally: ${nextStatus.replace("_", " ").toUpperCase()}.`);
+    } catch {
+      setReviewSyncMode("local");
+      upsertReviewRecordLocally(fallbackReview);
     }
-  };
+  }, [
+    account?.displayName,
+    caseTitle,
+    draftType,
+    lawyerProfile?.name,
+    ownerId,
+    reviewSyncMode,
+    upsertReviewRecordLocally,
+    savedDrafts,
+    selectedMatter,
+    selectedMatterId
+  ]);
 
   const renderReviewWorkflow = ({ entityType, entityKey, entityLabel, output }) => {
     if (!entityType || !entityKey || !output) return null;
     const review = getReviewRecord(entityType, entityKey);
     const draftState = reviewDrafts[`${entityType}:${entityKey}`] || {};
-    const effectiveStatus = String(review?.status || "ai_draft").toLowerCase();
+    const statusPresentation = buildReviewStatusPresentation(review?.status || "ai_draft");
     const effectiveApprovalRole = String(draftState.approvalRole ?? review?.approvalRole ?? "").trim().toLowerCase();
-    const statusLabel = effectiveStatus === "approved"
-      ? "Approved"
-      : effectiveStatus === "reviewed"
-        ? "Reviewed"
-        : "AI Draft";
-    const statusStyle = effectiveStatus === "approved"
-      ? { background: "#dff6e6", color: "#1f7a3d" }
-      : effectiveStatus === "reviewed"
-        ? { background: "#fff5d6", color: "#8a6500" }
-        : { background: "#e8efff", color: "#244b8a" };
 
     return (
-      <div className="law-card" style={{ marginTop: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="law-card review-workflow-card">
+        <div className="review-workflow-header">
           <div>
             <h4 style={{ marginBottom: 6 }}>Review Workflow</h4>
             <div className="muted-copy">Mark this output as reviewed or approved with lawyer notes.</div>
           </div>
-          <span className="status-chip" style={statusStyle}>{statusLabel}</span>
+          <span className="status-chip" style={statusPresentation.style}>{statusPresentation.label}</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginTop: 12 }}>
+        <div className="review-workflow-grid">
           <label className="law-field">
             <span>Reviewer Name</span>
             <input
@@ -2195,6 +4024,15 @@ function LawAssistantPage() {
             />
           </label>
           <label className="law-field">
+            <span>Risk Flags / Missing Items</span>
+            <textarea
+              rows={3}
+              value={draftState.reviewFindings ?? (Array.isArray(review?.reviewFindings) ? review.reviewFindings.join("\n") : "")}
+              onChange={(event) => updateReviewDraft(entityType, entityKey, { reviewFindings: event.target.value })}
+              placeholder="One point per line: missing fact, weak citation, risky statement, filing gap..."
+            />
+          </label>
+          <label className="law-field">
             <span>Approval Role</span>
             <select
               value={effectiveApprovalRole}
@@ -2202,6 +4040,19 @@ function LawAssistantPage() {
             >
               <option value="">Select approval role for final sign-off</option>
               {APPROVAL_ROLE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="law-field">
+            <span>Current Review Status</span>
+            <select
+              value={String(review?.status || "ai_draft").toLowerCase()}
+              onChange={(event) => saveReviewRecord({ entityType, entityKey, entityLabel, output, status: event.target.value })}
+            >
+              {REVIEW_STATUS_OPTIONS.map((item) => (
                 <option key={item.value} value={item.value}>
                   {item.label}
                 </option>
@@ -2226,12 +4077,17 @@ function LawAssistantPage() {
             {review.approvalRole ? ` Approval role: ${String(review.approvalRole).replace(/_/g, " ")}.` : ""}
           </div>
         ) : null}
+        {Array.isArray(review?.reviewFindings) && review.reviewFindings.length ? (
+          <div className="muted-copy" style={{ marginTop: 10 }}>
+            Current flagged items: {review.reviewFindings.join(" | ")}
+          </div>
+        ) : null}
       </div>
     );
   };
 
-  const renderReviewSnapshots = () => {
-    if (!reviewSnapshots.length) {
+  const renderReviewSnapshots = (snapshotList = reviewSnapshots) => {
+    if (!snapshotList.length) {
       return <p className="muted-copy">No approved output snapshots yet.</p>;
     }
 
@@ -2239,26 +4095,622 @@ function LawAssistantPage() {
       <div className="law-list-block">
         <h4>Approved Output Snapshots</h4>
         <ul>
-          {reviewSnapshots.slice(0, 12).map((item) => (
-            <li key={item.id || `${item.entityType}-${item.entityKey}`}>
-              <strong>{item.entityLabel || item.entityType || "Output"}</strong>
-              {item.reviewerName ? ` | Reviewer: ${item.reviewerName}` : ""}
-              {item.approvalRole ? ` | Approval role: ${String(item.approvalRole).replace(/_/g, " ")}` : ""}
-              {item.outputSummary ? <div className="muted-copy" style={{ marginTop: "4px" }}>{item.outputSummary}</div> : null}
-              {item.traceSnapshot?.factsUsed?.length ? (
-                <details style={{ marginTop: "6px" }}>
-                  <summary>View source snapshot</summary>
-                  <div className="muted-copy">Facts: {item.traceSnapshot.factsUsed.map((entry) => entry.label || entry).join(" | ") || "None"}</div>
-                  <div className="muted-copy">Documents: {(item.traceSnapshot.documentsReviewed || []).map((entry) => entry.title || "Document").join(", ") || "None"}</div>
-                  <div className="muted-copy">Authorities: {(item.traceSnapshot.authoritiesRelied || []).map((entry) => entry.title || entry.citation || "Authority").join(", ") || "None"}</div>
-                </details>
-              ) : null}
-            </li>
-          ))}
+          {snapshotList.slice(0, 12).map((item) => {
+            const traceSummary = buildSnapshotTraceSummary(item);
+            return (
+              <li key={item.id || `${item.entityType}-${item.entityKey}`}>
+                <strong>{item.entityLabel || item.entityType || "Output"}</strong>
+                {item.reviewerName ? ` | Reviewer: ${item.reviewerName}` : ""}
+                {item.approvalRole ? ` | Approval role: ${String(item.approvalRole).replace(/_/g, " ")}` : ""}
+                {item.outputSummary ? <div className="muted-copy" style={{ marginTop: "4px" }}>{item.outputSummary}</div> : null}
+                {traceSummary.hasTrace ? (
+                  <details style={{ marginTop: "6px" }}>
+                    <summary>View source snapshot</summary>
+                    <div className="muted-copy">Facts: {traceSummary.factsLine}</div>
+                    <div className="muted-copy">Documents: {traceSummary.documentsLine}</div>
+                    <div className="muted-copy">Authorities: {traceSummary.authoritiesLine}</div>
+                  </details>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </div>
     );
   };
+
+  const renderSeniorReviewWorkspace = () => (
+    <section className="law-grid law-grid-lawyer">
+      <aside className="soft-panel law-sidebar senior-review-sidebar">
+        <div className="section-title">Senior Review Queue</div>
+        <div className="law-plan-chip">
+          {reviewQueueSummary.total} items | {reviewQueueSummary.needsRevision} need revision
+        </div>
+        <div className="law-alerts">
+          <div className="law-alerts-title">Priority Review Items</div>
+          {reviewQueue.length ? (
+            <ul>
+              {reviewQueue.slice(0, 8).map((item) => {
+                const isSelected = `${item.entityType}:${item.entityKey}` === `${seniorSelectedReview?.entityType}:${seniorSelectedReview?.entityKey}`;
+                return (
+                <li
+                  key={item.id}
+                  className={`law-alert-item senior-review-queue-item ${item.reviewStatus === "approved" ? "ok" : item.reviewStatus === "reviewed" ? "warning" : "danger"}`}
+                  style={isSelected ? { border: "1px solid #2d7ff9", boxShadow: "0 0 0 2px rgba(45,127,249,0.12)" } : undefined}
+                >
+                  <strong>{item.entityLabel || item.entityType || "Output"}</strong>
+                  <div className="muted-copy">{item.matterLabel}</div>
+                  {item.draftVersionLabel ? <div>Version: {item.draftVersionLabel}</div> : null}
+                  <div className="senior-review-queue-status">Status: {String(item.reviewStatus).replace(/_/g, " ")}</div>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setSelectedMatterId(item.matterId || "");
+                      setSelectedSeniorReviewKey(`${item.entityType}:${item.entityKey}`);
+                    }}
+                  >
+                    Open review
+                  </button>
+                </li>
+              )})}
+            </ul>
+          ) : (
+            <p className="muted-copy">No review records yet. Associate outputs will start appearing here once saved into review workflow.</p>
+          )}
+        </div>
+        <div className="law-alerts">
+          <div className="law-alerts-title">Approved Snapshots</div>
+          <p className="muted-copy">{reviewSnapshots.length} approved records available for sign-off history.</p>
+        </div>
+      </aside>
+
+      <div className="soft-panel senior-review-shell">
+        <div className="section-title">Senior Review Workspace</div>
+        <p className="muted-copy">Review-first view for validating junior output, flagging issues, and approving matter work product.</p>
+
+        {seniorSelectedReview ? (
+          <>
+            <div className="law-extract-meta senior-review-meta">
+              <div><strong>Matter:</strong> {seniorSelectedReview.matterLabel}</div>
+              <div><strong>Output:</strong> {seniorSelectedReview.entityLabel || seniorSelectedReview.entityType || "Output"}</div>
+              <div><strong>Status:</strong> {String(seniorSelectedReview.reviewStatus).replace(/_/g, " ")}</div>
+              <div><strong>Reviewer:</strong> {seniorSelectedReview.reviewerName || "Not assigned"}</div>
+            </div>
+
+            <div className="senior-review-summary-grid">
+              <div className="law-card">
+                <div className="senior-review-card-label">Matter Context</div>
+                <h4>Matter Summary</h4>
+                <p className="muted-copy">{seniorSelectedReview.matter?.notes || seniorSelectedReview.outputSummary || "No matter summary available yet."}</p>
+                <h4>Key Facts</h4>
+                <ul>{renderList(seniorReviewFacts)}</ul>
+              </div>
+
+              <div className="law-card">
+                <div className="senior-review-card-label">Review Record</div>
+                <h4>Review Notes</h4>
+                <p className="muted-copy">{seniorSelectedReview.reviewNotes || "No internal review note saved yet."}</p>
+                <h4>Output Summary</h4>
+                <p>{seniorSelectedReview.outputSummary || "No output summary available yet."}</p>
+                {seniorSelectedReview.draftVersionLabel ? <p className="muted-copy">Current version: {seniorSelectedReview.draftVersionLabel}</p> : null}
+              </div>
+
+              <div className="law-card">
+                <div className="senior-review-card-label">Decision Signals</div>
+                <h4>Risk Flags</h4>
+                <ul className="senior-review-risk-list">
+                  {seniorRiskDetails.length ? seniorRiskDetails.map((item) => (
+                    <li key={item.title}>
+                      <strong>{item.title}</strong>
+                      <div className="muted-copy">{item.reason}</div>
+                    </li>
+                  )) : <li>No active risk flags.</li>}
+                </ul>
+                <div className="law-inline-actions senior-review-quick-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => saveReviewRecord({
+                      entityType: seniorSelectedReview.entityType,
+                      entityKey: seniorSelectedReview.entityKey,
+                      entityLabel: seniorSelectedReview.entityLabel,
+                      output: seniorSelectedReview,
+                      status: "needs_revision"
+                    })}
+                  >
+                    Send Back For Revision
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => saveReviewRecord({
+                      entityType: seniorSelectedReview.entityType,
+                      entityKey: seniorSelectedReview.entityKey,
+                      entityLabel: seniorSelectedReview.entityLabel,
+                      output: seniorSelectedReview,
+                      status: "approved"
+                    })}
+                  >
+                    Approve Output
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="senior-review-workflow-wrap">
+              {renderReviewWorkflow({
+                entityType: seniorSelectedReview.entityType,
+                entityKey: seniorSelectedReview.entityKey,
+                entityLabel: seniorSelectedReview.entityLabel || seniorSelectedReview.entityType || "Output",
+                output: seniorSelectedReview
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="muted-copy">No review items available yet. Save any associate output into the review workflow and it will appear here.</p>
+        )}
+      </div>
+    </section>
+  );
+
+  const renderFirmWorkspace = () => (
+    <section className="law-grid law-grid-lawyer">
+      <aside className="soft-panel law-sidebar senior-review-sidebar">
+        <div className="section-title">Firm Command Center</div>
+        <div className="law-plan-chip">
+          {firmDashboard.metrics[0].value} matters | {firmDashboard.queueSummary.total} review items | {firmDashboard.approvedSnapshots.length} approved
+        </div>
+        <div className="law-alerts">
+          <div className="law-alerts-title">Urgent Deadlines</div>
+          {firmDashboard.urgentDeadlines.length ? (
+            <ul>
+              {firmDashboard.urgentDeadlines.map((item) => (
+                <li key={item.id} className={`law-alert-item senior-review-queue-item ${item.severity.type === "danger" ? "danger" : item.severity.type === "warning" ? "warning" : ""}`}>
+                  <strong>{item.title}</strong>
+                  <div className="muted-copy">{item.nextHearingDate || "No date set"}</div>
+                  <div className="senior-review-queue-status">{item.severity.label}</div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted-copy">No urgent matter deadlines in the next 7 days.</p>
+          )}
+        </div>
+        <div className="law-alerts">
+          <div className="law-alerts-title">Recent Sign-off History</div>
+          <p className="muted-copy">{firmDashboard.approvedSnapshots.length} approved records available across the firm workspace.</p>
+        </div>
+        <div className="law-alerts">
+          <div className="law-alerts-title">Routing Pressure</div>
+          <p className="muted-copy">Partner hold: {firmDashboard.routingSummary.partnerHold} | Senior review: {firmDashboard.routingSummary.seniorReview} | Urgent: {firmDashboard.routingSummary.urgent}</p>
+        </div>
+        <div className="law-alerts">
+          <div className="law-alerts-title">Queue View</div>
+          <div className="firm-filter-stack">
+            <label className="law-field">
+              <span>Filter</span>
+              <select value={firmQueueFilter} onChange={(event) => setFirmQueueFilter(event.target.value)}>
+                <option value="all">All attention items</option>
+                <option value="urgent">Urgent only</option>
+                <option value="partner_hold">Partner hold</option>
+                <option value="assigned">Assigned reviews</option>
+                <option value="approved">Approved items</option>
+              </select>
+            </label>
+            <label className="law-field">
+              <span>Sort</span>
+              <select value={firmQueueSort} onChange={(event) => setFirmQueueSort(event.target.value)}>
+                <option value="priority">Sort by priority</option>
+                <option value="latest">Sort by latest</option>
+                <option value="risk">Sort by risk count</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </aside>
+
+      <div className="soft-panel senior-review-shell">
+        <div className="section-title">Firm Operations Workspace</div>
+        <p className="muted-copy">Portfolio-wide view for review pressure, sign-off history, and near-term delivery risk.</p>
+
+        <div className="firm-metric-grid">
+          {firmDashboard.metrics.map((item) => (
+            <div key={item.label} className={`law-card firm-metric-card ${item.tone}`}>
+              <div className="senior-review-card-label">{item.label}</div>
+              <strong className="firm-metric-value">{item.value}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="senior-review-summary-grid firm-summary-grid">
+          <div className="law-card">
+            <div className="senior-review-card-label">Review Pressure</div>
+            <h4>Items Needing Attention</h4>
+            {filteredFirmAttentionItems.length ? (
+              <ul className="senior-review-risk-list">
+                {filteredFirmAttentionItems.map((item) => (
+                  <li key={`${item.entityType}:${item.entityKey}`}>
+                    <strong>{item.entityLabel || item.entityType || "Output"}</strong>
+                    <div className="muted-copy">{item.matterLabel}</div>
+                    <div className="muted-copy">Status: {String(item.reviewStatus).replace(/_/g, " ")}</div>
+                    {item.assignedReviewer ? <div className="muted-copy">Assigned: {item.assignedReviewer}</div> : null}
+                    {item.escalationLevel && item.escalationLevel !== "routine" ? <div className="muted-copy">Escalation: {String(item.escalationLevel).replace(/_/g, " ")}</div> : null}
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        setSelectedMatterId(item.matterId || "");
+                        setSelectedSeniorReviewKey(`${item.entityType}:${item.entityKey}`);
+                      }}
+                    >
+                      Open routing
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="muted-copy">No high-pressure review items right now.</p>}
+          </div>
+
+          <div className="law-card">
+            <div className="senior-review-card-label">Task Load</div>
+            <h4>Pending Task Snapshot</h4>
+            {firmDashboard.pendingTasks.length ? (
+              <ul className="senior-review-risk-list">
+                {firmDashboard.pendingTasks.slice(0, 6).map((item) => (
+                  <li key={item.id || `${item.title}-${item.dueDate}`}>
+                    <strong>{item.title || "Task"}</strong>
+                    <div className="muted-copy">{item.relatedCaseId || "Unlinked matter"}</div>
+                    <div className="muted-copy">{item.dueDate || "No deadline"}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="muted-copy">No pending firm tasks at the moment.</p>}
+          </div>
+
+          <div className="law-card">
+            <div className="senior-review-card-label">Governance</div>
+            <h4>Recent Audit Activity</h4>
+            {firmDashboard.recentFirmActions.length ? (
+              <ul className="senior-review-risk-list firm-action-timeline">
+                {firmDashboard.recentFirmActions.map((item, index) => (
+                  <li key={`${item.id || item.action || "firm-action"}-${index}`}>
+                    <strong>{String(item.action || "firm_action").replace(/_/g, " ")}</strong>
+                    <div className="muted-copy">{item.entityLabel || item.entityType || "Firm workflow item"}</div>
+                    <div className="muted-copy">{item.actor || "Firm user"} | {item.createdAt || "No timestamp"}</div>
+                    {item.assignedReviewer ? <div className="muted-copy">Assigned: {item.assignedReviewer}</div> : null}
+                    {item.partnerStatus && item.partnerStatus !== "pending" ? <div className="muted-copy">Partner state: {String(item.partnerStatus).replace(/_/g, " ")}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : firmDashboard.recentAudit.length ? (
+              <ul className="senior-review-risk-list">
+                {firmDashboard.recentAudit.map((item, index) => (
+                  <li key={`${item.id || item.action || "audit"}-${index}`}>
+                    <strong>{item.action || "Audit event"}</strong>
+                    <div className="muted-copy">{item.status || "logged"}</div>
+                    <div className="muted-copy">{item.createdAt || item.timestamp || "No timestamp"}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="muted-copy">No recent audit records loaded.</p>}
+          </div>
+        </div>
+
+        <div className="senior-review-workflow-wrap">
+          {firmSelectedReview ? (
+            <div className="law-card review-workflow-card">
+              <div className="review-workflow-header">
+                <div>
+                  <h4 style={{ marginBottom: 6 }}>Firm Routing Desk</h4>
+                  <div className="muted-copy">Assign reviewers, escalate strategically, and finalize partner-level sign-off.</div>
+                </div>
+                <span className="status-chip" style={firmSelectedStatusPresentation.style}>
+                  {firmSelectedStatusPresentation.label}
+                </span>
+              </div>
+              <div className="law-extract-meta senior-review-meta">
+                <div><strong>Selected:</strong> {firmSelectedReview.entityLabel || firmSelectedReview.entityType || "Output"}</div>
+                <div><strong>Matter:</strong> {firmSelectedReview.matterLabel}</div>
+                <div><strong>Assigned:</strong> {firmSelectedDraft.assignedReviewer || firmSelectedReview.assignedReviewer || "Unassigned"}</div>
+                <div><strong>Escalation:</strong> {String(firmSelectedDraft.escalationLevel || firmSelectedReview.escalationLevel || "routine").replace(/_/g, " ")}</div>
+              </div>
+              <div className="law-inline-actions firm-routing-status-row">
+                <span className="status-chip firm-routing-chip firm-routing-chip-escalation">
+                  {String(firmSelectedDraft.escalationLevel || firmSelectedReview.escalationLevel || "routine").replace(/_/g, " ")}
+                </span>
+                <span className="status-chip firm-routing-chip firm-routing-chip-partner">
+                  {String(firmSelectedDraft.partnerStatus || firmSelectedReview.partnerStatus || "pending").replace(/_/g, " ")}
+                </span>
+                {String(firmSelectedDraft.assignedReviewer || firmSelectedReview.assignedReviewer || "").trim()
+                  ? <span className="status-chip firm-routing-chip firm-routing-chip-assigned">Assigned</span>
+                  : null}
+              </div>
+              <div className="review-workflow-grid">
+                <label className="law-field">
+                  <span>Assigned Reviewer</span>
+                  <input
+                    type="text"
+                    value={firmSelectedDraft.assignedReviewer ?? firmSelectedReview.assignedReviewer ?? ""}
+                    onChange={(event) => updateReviewDraft(firmSelectedReview.entityType, firmSelectedReview.entityKey, { assignedReviewer: event.target.value })}
+                    placeholder="Associate, senior, or partner owner"
+                  />
+                </label>
+                <label className="law-field">
+                  <span>Escalation Level</span>
+                  <select
+                    value={firmSelectedDraft.escalationLevel ?? firmSelectedReview.escalationLevel ?? "routine"}
+                    onChange={(event) => updateReviewDraft(firmSelectedReview.entityType, firmSelectedReview.entityKey, { escalationLevel: event.target.value })}
+                  >
+                    {FIRM_ESCALATION_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="law-field">
+                  <span>Partner Decision State</span>
+                  <select
+                    value={firmSelectedDraft.partnerStatus ?? firmSelectedReview.partnerStatus ?? "pending"}
+                    onChange={(event) => updateReviewDraft(firmSelectedReview.entityType, firmSelectedReview.entityKey, { partnerStatus: event.target.value })}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="ready_for_partner">Ready for Partner</option>
+                    <option value="partner_approved">Partner Approved</option>
+                  </select>
+                </label>
+                <label className="law-field">
+                  <span>Partner Approval Role</span>
+                  <select
+                    value={firmSelectedDraft.approvalRole ?? firmSelectedReview.approvalRole ?? ""}
+                    onChange={(event) => updateReviewDraft(firmSelectedReview.entityType, firmSelectedReview.entityKey, { approvalRole: event.target.value })}
+                  >
+                    <option value="">Select sign-off role</option>
+                    {APPROVAL_ROLE_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="law-inline-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    appendFirmAction({
+                      action: "routing_saved",
+                      entityType: firmSelectedReview.entityType,
+                      entityKey: firmSelectedReview.entityKey,
+                      entityLabel: firmSelectedReview.entityLabel,
+                      assignedReviewer: firmSelectedDraft.assignedReviewer || firmSelectedReview.assignedReviewer || "",
+                      escalationLevel: firmSelectedDraft.escalationLevel || firmSelectedReview.escalationLevel || "routine",
+                      partnerStatus: firmSelectedDraft.partnerStatus || firmSelectedReview.partnerStatus || "pending"
+                    });
+                    saveReviewRecord({
+                      entityType: firmSelectedReview.entityType,
+                      entityKey: firmSelectedReview.entityKey,
+                      entityLabel: firmSelectedReview.entityLabel,
+                      output: firmSelectedReview,
+                      status: firmSelectedReview.status || "ai_draft"
+                    });
+                  }}
+                >
+                  Save Firm Routing
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    const nextDraft = { escalationLevel: "partner_hold", approvalRole: "partner", partnerStatus: "ready_for_partner" };
+                    updateReviewDraft(firmSelectedReview.entityType, firmSelectedReview.entityKey, nextDraft);
+                    appendFirmAction({
+                      action: "partner_escalated",
+                      entityType: firmSelectedReview.entityType,
+                      entityKey: firmSelectedReview.entityKey,
+                      entityLabel: firmSelectedReview.entityLabel,
+                      escalationLevel: "partner_hold",
+                      partnerStatus: "ready_for_partner"
+                    });
+                    saveReviewRecord({
+                      entityType: firmSelectedReview.entityType,
+                      entityKey: firmSelectedReview.entityKey,
+                      entityLabel: firmSelectedReview.entityLabel,
+                      output: firmSelectedReview,
+                      status: "reviewed",
+                      draftOverrides: nextDraft
+                    });
+                  }}
+                >
+                  Escalate To Partner
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    const nextDraft = { approvalRole: "partner", partnerStatus: "partner_approved" };
+                    updateReviewDraft(firmSelectedReview.entityType, firmSelectedReview.entityKey, nextDraft);
+                    appendFirmAction({
+                      action: "partner_approved",
+                      entityType: firmSelectedReview.entityType,
+                      entityKey: firmSelectedReview.entityKey,
+                      entityLabel: firmSelectedReview.entityLabel,
+                      escalationLevel: firmSelectedDraft.escalationLevel || firmSelectedReview.escalationLevel || "routine",
+                      partnerStatus: "partner_approved"
+                    });
+                    saveReviewRecord({
+                      entityType: firmSelectedReview.entityType,
+                      entityKey: firmSelectedReview.entityKey,
+                      entityLabel: firmSelectedReview.entityLabel,
+                      output: firmSelectedReview,
+                      status: "approved",
+                      draftOverrides: nextDraft
+                    });
+                  }}
+                >
+                  Partner Approve
+                </button>
+              </div>
+              <div className="muted-copy" style={{ marginTop: 10 }}>
+                Current partner state: {String(firmSelectedDraft.partnerStatus || firmSelectedReview.partnerStatus || "pending").replace(/_/g, " ")}.
+              </div>
+            </div>
+          ) : null}
+          {renderReviewSnapshots(firmDashboard.approvedSnapshots)}
+        </div>
+      </div>
+    </section>
+  );
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !memoOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "memo",
+      entityKey: memoReviewKey,
+      entityLabel: "Research Memo",
+      output: memoOutput,
+      reviewFindings: memoOutput.riskFlags || []
+    });
+  }, [autoUpsertReviewRecord, hasRole.lawyer, memoOutput, memoReviewKey, mode]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !strengthOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "strength",
+      entityKey: buildReviewEntityKey("strength", [selectedMatterId || selectedMatter?.id || "workspace", caseTitle || intakeOutput?.caseTitle || "general"]),
+      entityLabel: "Case Strength",
+      output: strengthOutput,
+      reviewFindings: strengthOutput.weaknesses || []
+    });
+  }, [autoUpsertReviewRecord, caseTitle, hasRole.lawyer, intakeOutput?.caseTitle, mode, selectedMatter?.id, selectedMatterId, strengthOutput]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !predictionOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "prediction",
+      entityKey: predictionReviewKey,
+      entityLabel: "Case Prediction",
+      output: predictionOutput,
+      reviewFindings: predictionOutput.riskDrivers || predictionOutput.risks || []
+    });
+  }, [autoUpsertReviewRecord, hasRole.lawyer, mode, predictionOutput, predictionReviewKey]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !readinessOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "readiness",
+      entityKey: readinessReviewKey,
+      entityLabel: "Filing Readiness",
+      output: readinessOutput,
+      reviewFindings: readinessOutput.missingItems || readinessOutput.criticalGaps || []
+    });
+  }, [autoUpsertReviewRecord, hasRole.lawyer, mode, readinessOutput, readinessReviewKey]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !consistencyOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "consistency",
+      entityKey: consistencyReviewKey,
+      entityLabel: "Matter Consistency",
+      output: consistencyOutput,
+      reviewFindings: consistencyOutput.contradictions || consistencyOutput.riskFlags || []
+    });
+  }, [autoUpsertReviewRecord, consistencyOutput, consistencyReviewKey, hasRole.lawyer, mode]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !coverageOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "coverage",
+      entityKey: coverageReviewKey,
+      entityLabel: "Evidence Coverage",
+      output: coverageOutput,
+      reviewFindings: coverageOutput.missingEvidence || coverageOutput.gaps || []
+    });
+  }, [autoUpsertReviewRecord, coverageOutput, coverageReviewKey, hasRole.lawyer, mode]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !draftValidationOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "draft_validation",
+      entityKey: draftValidationReviewKey,
+      entityLabel: "Draft Validation",
+      output: draftValidationOutput,
+      reviewFindings: [
+        ...((draftValidationOutput.missingSections || []).map((item) => `Missing: ${item}`)),
+        ...(draftValidationOutput.criticalIssues || [])
+      ]
+    });
+  }, [autoUpsertReviewRecord, draftValidationOutput, draftValidationReviewKey, hasRole.lawyer, mode]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !filingPackOutput) return;
+    autoUpsertReviewRecord({
+      entityType: "filing_pack",
+      entityKey: filingPackReviewKey,
+      entityLabel: "Final Filing Pack",
+      output: filingPackOutput,
+      reviewFindings: filingPackOutput.missingItems || filingPackOutput.risks || []
+    });
+  }, [autoUpsertReviewRecord, filingPackOutput, filingPackReviewKey, hasRole.lawyer, mode]);
+
+  useEffect(() => {
+    if (!hasRole.lawyer || mode === "public" || !lawyerOutput) return;
+
+    if (lawyerTab === "document") {
+      autoUpsertReviewRecord({
+        entityType: "document_analysis",
+        entityKey: documentReviewKey,
+        entityLabel: "Document Analysis",
+        output: lawyerOutput,
+        reviewFindings: [
+          ...(lawyerOutput.missingElements || []),
+          ...(lawyerOutput.legalRisks || []),
+          ...(lawyerOutput.contradictionsWithCase || [])
+        ]
+      });
+      return;
+    }
+
+    if (lawyerTab === "draft" && String(lawyerOutput.draft || "").trim()) {
+      autoUpsertReviewRecord({
+        entityType: "draft_output",
+        entityKey: draftReviewKey,
+        entityLabel: "Draft Output",
+        output: lawyerOutput,
+        reviewFindings: lawyerOutput.risks || []
+      });
+      return;
+    }
+
+    if (lawyerTab === "research") {
+      autoUpsertReviewRecord({
+        entityType: "research_output",
+        entityKey: buildReviewEntityKey("research_output", [selectedMatterId || selectedMatter?.id || "workspace", caseTitle || lawyerInput.slice(0, 60) || "general"]),
+        entityLabel: "AI Legal Research",
+        output: lawyerOutput,
+        reviewFindings: []
+      });
+    }
+  }, [
+    autoUpsertReviewRecord,
+    caseTitle,
+    documentReviewKey,
+    draftReviewKey,
+    hasRole.lawyer,
+    lawyerInput,
+    lawyerOutput,
+    lawyerTab,
+    mode,
+    selectedMatter?.id,
+    selectedMatterId
+  ]);
+
+  useEffect(() => {
+    if (mode !== "lawyer") return;
+    if (lawyerTab !== "research") return;
+    if (String(lawyerInput || "").trim()) return;
+    const prompt = buildResearchPromptFromIntake(intakeOutput, intakeChronology);
+    if (!prompt) return;
+    setLawyerInput(prompt);
+  }, [intakeChronology, intakeOutput, lawyerInput, lawyerTab, mode]);
 
   const activateRole = (role) => {
     if (!account) {
@@ -2269,14 +4721,14 @@ function LawAssistantPage() {
     registerRole(role, {
       uid: account.uid,
       phone: account.phone,
-      name: account.name || (role === "lawyer" ? "Lawyer" : "Public User"),
+      name: account.name || (role === "firm" ? "Firm Admin" : role === "senior" ? "Senior Lawyer" : role === "lawyer" ? "Lawyer" : "Public User"),
       role,
       onboardedAt: new Date().toISOString()
     });
 
     setLastActiveRole(role);
     setSearchParams({ mode: role });
-    setStatus(`${role === "lawyer" ? "Lawyer" : "Public"} mode activated.`);
+    setStatus(`${role === "firm" ? "Firm command" : role === "senior" ? "Senior review" : role === "lawyer" ? "Lawyer" : "Public"} mode activated.`);
   };
 
   const startVoiceInput = (setter) => {
@@ -2286,23 +4738,61 @@ function LawAssistantPage() {
       return;
     }
 
+    if (voiceRecognitionRef.current) {
+      try {
+        voiceRecognitionRef.current.stop();
+      } catch {
+        // Ignore stale speech-recognition instances while switching sessions.
+      }
+      voiceRecognitionRef.current = null;
+    }
+
     const recognition = new SpeechRecognition();
+    let capturedTranscript = false;
     recognition.lang = publicLanguage === "telugu" ? "te-IN" : "en-IN";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
+    recognition.onstart = () => {
+      setStatus("Listening... speak now.");
+    };
     recognition.onresult = (event) => {
       const spoken = event.results?.[0]?.[0]?.transcript || "";
+      capturedTranscript = Boolean(String(spoken || "").trim());
       setter((previous) => `${previous} ${spoken}`.trim());
-      setStatus("Voice dictation captured.");
+      setStatus(capturedTranscript ? "Voice dictation captured." : "No speech was captured.");
     };
-    recognition.onerror = () => {
-      setStatus("Voice capture failed. Please try again.");
+    recognition.onerror = (event) => {
+      const reason = String(event?.error || "").trim().toLowerCase();
+      if (reason === "not-allowed" || reason === "service-not-allowed") {
+        setStatus("Microphone permission is blocked. Allow mic access and try again.");
+      } else if (reason === "no-speech") {
+        setStatus("No speech detected. Try again and speak a little closer to the mic.");
+      } else if (reason === "audio-capture") {
+        setStatus("No working microphone was detected.");
+      } else {
+        setStatus("Voice capture failed. Please try again.");
+      }
     };
-    recognition.start();
+    recognition.onend = () => {
+      if (voiceRecognitionRef.current === recognition) {
+        voiceRecognitionRef.current = null;
+      }
+      if (!capturedTranscript) {
+        setStatus((current) => current || "Voice capture stopped.");
+      }
+    };
+    voiceRecognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      voiceRecognitionRef.current = null;
+      setStatus("Voice input could not start. Refresh once and try again.");
+    }
   };
 
   const extractFromFile = async (file, setter, metaSetter) => {
     if (!file) return;
+    const isPlainTextLike = /text|json|csv|markdown|md|xml/i.test(file.type || "") || /\.(txt|md|json|csv|xml)$/i.test(file.name || "");
     try {
       setBusy(true);
       setStatus("Extracting text from uploaded document...");
@@ -2328,6 +4818,25 @@ function LawAssistantPage() {
             hydrateLawyerData();
           }
     } catch (error) {
+      if (isPlainTextLike) {
+        try {
+          const fallbackText = String(await file.text()).slice(0, 30000);
+          setter(fallbackText);
+          if (metaSetter) {
+            metaSetter({
+              fileName: file.name,
+              mimeType: file.type || "text/plain",
+              qualityScore: 100,
+              pagePreviews: [],
+              extractionEngine: "local-text"
+            });
+          }
+          setStatus(error?.message ? `Loaded ${file.name} locally. ${error.message}` : `Loaded ${file.name} locally.`);
+          return;
+        } catch {
+          // Fall through to the generic extraction failure status below.
+        }
+      }
       setStatus(error.message || "Could not extract text from file.");
     } finally {
       setBusy(false);
@@ -2722,7 +5231,7 @@ function LawAssistantPage() {
 
   const runDraftValidation = async () => {
     const payload = {
-      draftText: lawyerOutput?.draft || lawyerInput || noticeOutput?.noticeDraft || "",
+      draftText: sharedWorkspaceState.draftText || sharedWorkspaceState.currentText || "",
       draftType,
       courtType: draftCourtType
     };
@@ -2731,12 +5240,12 @@ function LawAssistantPage() {
     setStatus("Validating draft structure against court-ready filing expectations...");
     try {
       const response = await analyzeDraftValidation(payload);
-      setDraftValidationOutput(response);
+      setDraftValidationOutput(withSourceKey(response, draftValidationStateKey));
       setLawyerTab("draft-validation");
       setStatus("Draft validation ready.");
     } catch {
       const fallback = buildLocalDraftValidationOutput(payload);
-      setDraftValidationOutput(fallback);
+      setDraftValidationOutput(withSourceKey(fallback, draftValidationStateKey));
       setLawyerTab("draft-validation");
       setStatus("Draft validation prepared with local fallback.");
     } finally {
@@ -2747,10 +5256,10 @@ function LawAssistantPage() {
   const runFilingPackReadiness = async () => {
     const payload = {
       matterId: selectedMatter?.id || selectedMatterId || "",
-      facts: intakeOutput?.factSummary || caseNotes || lawyerInput || intakeFacts,
-      issues: intakeOutput?.legalIssues || memoOutput?.issueList || [],
+      facts: sharedWorkspaceState.factsSummary || sharedWorkspaceState.researchText || sharedWorkspaceState.currentText,
+      issues: sharedWorkspaceState.issues,
       documents: lawyerEvidence ? [{ id: "evidence-text", title: "Evidence notes", content: lawyerEvidence }] : [],
-      draftText: lawyerOutput?.draft || noticeOutput?.noticeDraft || "",
+      draftText: sharedWorkspaceState.draftText,
       draftType,
       courtType: draftCourtType,
       selectedCases: selectedArgumentCases.length ? selectedArgumentCases : (strengthOutput?.authorityReview || argumentOutput?.authorityReview || []),
@@ -2758,30 +5267,71 @@ function LawAssistantPage() {
       argumentOutput,
       documentAnalysis: lawyerTab === "document" && lawyerOutput?.summary ? lawyerOutput : null,
       hearingNotes,
-      chronologyText: intakeChronology.map((item) => `${item.date || "No date"} - ${item.event}`).join("\n") || chronologyText
+      chronologyText: sharedWorkspaceState.chronologyText
     };
+    const freshReadiness = buildLocalReadinessOutput(payload);
+    const freshConsistency = buildLocalMatterConsistencyOutput(payload);
+    const freshCoverage = buildLocalCoverageOutput(payload);
+    const freshDraftValidation = buildLocalDraftValidationOutput(payload);
+    const localFilingSnapshot = buildLocalFilingPackOutput({
+      readiness: freshReadiness,
+      consistency: freshConsistency,
+      coverage: freshCoverage,
+      draftValidation: freshDraftValidation
+    });
 
     setBusy(true);
     setStatus("Running final filing pack gate across readiness, consistency, evidence coverage, draft validation, and authority freshness...");
     try {
       const response = await analyzeFilingPackReadiness(payload);
-      setFilingPackOutput(response);
+      setFilingPackOutput(withSourceKey(sanitizeFilingPackOutput(response, {
+        payload,
+        localSnapshot: localFilingSnapshot,
+        draftValidation: freshDraftValidation
+      }), filingPackAutoSyncKey));
       setLawyerTab("filing-pack");
       setStatus("Final filing pack review ready.");
     } catch {
-      const fallback = buildLocalFilingPackOutput({
-        readiness: readinessOutput || buildLocalReadinessOutput(payload),
-        consistency: consistencyOutput || buildLocalMatterConsistencyOutput(payload),
-        coverage: coverageOutput || buildLocalCoverageOutput(payload),
-        draftValidation: draftValidationOutput || buildLocalDraftValidationOutput(payload)
-      });
-      setFilingPackOutput(fallback);
+      setFilingPackOutput(withSourceKey(localFilingSnapshot, filingPackAutoSyncKey));
       setLawyerTab("filing-pack");
       setStatus("Final filing pack review prepared with local fallback.");
     } finally {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (draftValidationOutput?.sourceKey && draftValidationOutput.sourceKey !== draftValidationStateKey) {
+      setDraftValidationOutput(null);
+    }
+  }, [draftValidationOutput?.sourceKey, draftValidationStateKey]);
+
+  useEffect(() => {
+    if (filingPackOutput?.sourceKey && filingPackOutput.sourceKey !== filingPackAutoSyncKey) {
+      setFilingPackOutput(null);
+    }
+  }, [filingPackOutput?.sourceKey, filingPackAutoSyncKey]);
+
+  useEffect(() => {
+    if (lawyerTab !== "filing-pack" || busy) return;
+
+    const hasSourceMaterial = Boolean(
+      String(
+        sharedWorkspaceState.draftText
+        || sharedWorkspaceState.factsSummary
+        || sharedWorkspaceState.researchText
+        || sharedWorkspaceState.currentText
+        || ""
+      ).trim()
+    );
+
+    if (!hasSourceMaterial) return;
+    if (filingPackAutoSyncKey === lastFilingPackAutoSyncKey) return;
+
+    setLastFilingPackAutoSyncKey(filingPackAutoSyncKey);
+    runFilingPackReadiness();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lawyerTab, busy, filingPackAutoSyncKey, lastFilingPackAutoSyncKey]);
 
   const loadCitationView = async (caseItem = citationTargetCase) => {
     if (!caseItem) {
@@ -2803,7 +5353,11 @@ function LawAssistantPage() {
       setCitationView(buildLocalCitationView(caseItem, fallbackValidity));
       setCitationExpanded({});
       setLawyerTab("citations");
-      setStatus(error.message || "Citation graph ready.");
+      setStatus(
+        error?.message
+          ? `Citation graph unavailable. Showing local citation fallback. ${error.message}`
+          : "Citation graph unavailable. Showing local citation fallback."
+      );
     } finally {
       setCitationLoading(false);
     }
@@ -2844,7 +5398,24 @@ function LawAssistantPage() {
 
       setStatus("Authority revalidated.");
     } catch (error) {
-      setStatus(error.message || "Authority revalidation could not be completed.");
+      const fallbackValidity = caseValidityMap[caseKey] || {
+        status: "CAUTION",
+        riskLevel: "MEDIUM",
+        confidenceScore: 35,
+        summary: "Live validation is unavailable right now. Treat this authority as caution until manually verified.",
+        topPositiveCases: [],
+        topNegativeCases: []
+      };
+      setCaseValidityMap((previous) => ({
+        ...previous,
+        [caseKey]: fallbackValidity
+      }));
+      setCitationView(buildLocalCitationView(target, fallbackValidity));
+      setStatus(
+        error?.message
+          ? `Authority revalidation unavailable. Showing local fallback. ${error.message}`
+          : "Authority revalidation unavailable. Showing local fallback."
+      );
     } finally {
       setBusy(false);
       setCaseValidityLoadingKey((current) => (current === caseKey ? "" : current));
@@ -2952,6 +5523,7 @@ function LawAssistantPage() {
 
   const openJudgmentDetails = (item) => {
     setSelectedJudgment(item);
+    setLawyerTab("judgments");
     setStatus(`Opened judgment details: ${item.title || "authority"}`);
 
     const validityKey = getJudgmentValidityKey(item);
@@ -3011,6 +5583,8 @@ function LawAssistantPage() {
       }
       return [...previous, item];
     });
+    setLawyerTab("judgments");
+    setStatus(`Compare queue updated: ${item.title || item.citation || "authority"}`);
   };
 
   const findAuthoritiesFromCurrentMatter = async () => {
@@ -3056,7 +5630,21 @@ function LawAssistantPage() {
       setStatus(`Judgment sync run created: ${response.run?.id || "pending"}`);
       hydrateLawyerData();
     } catch (error) {
-      setStatus(error.message || "Could not create judgment sync run.");
+      if (isServiceUnavailableError(error)) {
+        setJudgmentSyncStatus((current) => ({
+          ...(current || {}),
+          lastRun: {
+            id: `local-sync-${Date.now()}`,
+            sourceId,
+            mode: "local-fallback",
+            createdAt: new Date().toISOString(),
+            status: "offline"
+          }
+        }));
+        setStatus("Live sync service is unavailable right now. Continue with current local/demo judgment data.");
+      } else {
+        setStatus(error.message || "Could not create judgment sync run.");
+      }
     } finally {
       setBusy(false);
     }
@@ -3085,7 +5673,17 @@ function LawAssistantPage() {
       );
       hydrateLawyerData();
     } catch (error) {
-      setStatus(error.message || "Could not run live judgment retrieval.");
+      const fallbackJudgments = buildLocalJudgmentMatches({ intakeOutput, memoOutput });
+      if (fallbackJudgments.length) {
+        setJudgments(fallbackJudgments);
+      }
+      setJudgmentFeedMode("demo");
+      setJudgmentSourceMode("local");
+      setStatus(
+        error?.message
+          ? `Live retrieval unavailable. Showing local fallback judgments. ${error.message}`
+          : "Live retrieval unavailable. Showing local fallback judgments."
+      );
     } finally {
       setBusy(false);
     }
@@ -3110,14 +5708,7 @@ function LawAssistantPage() {
 
   const loadIntakeIntoResearch = () => {
     if (!intakeOutput) return;
-    const prompt = [
-      `Matter: ${intakeOutput.matterTitle || "New matter"}`,
-      intakeOutput.clientSummary ? `Client Summary:\n${intakeOutput.clientSummary}` : "",
-      intakeOutput.factSummary ? `Fact Summary:\n${intakeOutput.factSummary}` : "",
-      intakeOutput.legalIssues?.length ? `Legal Issues:\n- ${intakeOutput.legalIssues.join("\n- ")}` : "",
-      intakeChronology.length ? `Chronology:\n${intakeChronology.map((item) => `${item.date || "No date"} - ${item.event}`).join("\n")}` : "",
-      intakeOutput.documentsRequired?.length ? `Documents Required:\n- ${intakeOutput.documentsRequired.join("\n- ")}` : ""
-    ].filter(Boolean).join("\n\n");
+    const prompt = sharedWorkspaceState.researchText || buildResearchPromptFromIntake(intakeOutput, intakeChronology);
     setLawyerInput(prompt);
     setLawyerTab("research");
     setStatus("Matter intake moved into research.");
@@ -3236,108 +5827,647 @@ function LawAssistantPage() {
     }
   };
 
+  const refreshCopilotSessionState = async (sessionId) => {
+    if (!sessionId) return null;
+    const [sessionResponse, actionResponse] = await Promise.all([
+      getCopilotSession(sessionId),
+      fetchCopilotActions(sessionId)
+    ]);
+    setCopilotSessionData(sessionResponse || null);
+    setCopilotAllowedActions(Array.isArray(actionResponse?.allowedActions) ? actionResponse.allowedActions : []);
+    return sessionResponse || null;
+  };
+
+  const ensureCopilotSession = useCallback(async () => {
+    if (copilotSessionId) return copilotSessionId;
+    const started = await startCopilotSession({
+      ownerId,
+      matterId: selectedMatter?.id || null
+    });
+    const nextSessionId = String(started?.session?.id || started?.sessionId || "").trim();
+    if (!nextSessionId) {
+      throw new Error("Copilot session was not created.");
+    }
+    setCopilotSessionId(nextSessionId);
+    setCopilotSessionData(started || null);
+    setCopilotBackendUnavailable(false);
+    return nextSessionId;
+  }, [copilotSessionId, ownerId, selectedMatter?.id]);
+
+  const syncCopilotSession = async (sessionId, options = {}) => {
+    const nextSessionId = sessionId || (await ensureCopilotSession());
+    const shouldBuildContext = options.buildContext !== false;
+    const intakeResponse = await submitCopilotIntake(nextSessionId, copilotIntakePayload);
+    let latest = intakeResponse || null;
+
+    if (shouldBuildContext && String(copilotIntakePayload.factsSummary || "").trim()) {
+      latest = await buildCopilotContext(nextSessionId, {});
+    }
+
+    setCopilotSessionData(latest || null);
+    await refreshCopilotSessionState(nextSessionId);
+    return nextSessionId;
+  };
+
+  useEffect(() => {
+    if (!copilotChatOpen || copilotSessionId || copilotSessionBusy || copilotBackendUnavailable) return;
+
+    let active = true;
+    setCopilotSessionBusy(true);
+    ensureCopilotSession()
+      .then((sessionId) => {
+        if (!active) return;
+        return refreshCopilotSessionState(sessionId);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setCopilotBackendUnavailable(true);
+        setStatus(error?.message || "Unable to start copilot session.");
+      })
+      .finally(() => {
+        if (active) {
+          setCopilotSessionBusy(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [copilotBackendUnavailable, copilotChatOpen, copilotSessionBusy, copilotSessionId, ensureCopilotSession]);
+
+  useEffect(() => {
+    const latestDocument = Array.isArray(copilotSessionData?.memory?.generatedDocuments) && copilotSessionData.memory.generatedDocuments.length
+      ? copilotSessionData.memory.generatedDocuments[copilotSessionData.memory.generatedDocuments.length - 1]
+      : null;
+    const latestDraft = String(copilotSessionData?.memory?.workspaceDraft || latestDocument?.content || "").trim();
+    if (latestDraft) {
+      setLawyerOutput((current) => ({
+        ...(current || {}),
+        draft: latestDraft
+      }));
+    }
+    if (copilotSessionData?.memory?.lastGenerationMeta) {
+      setCopilotDraftMeta(copilotSessionData.memory.lastGenerationMeta);
+    }
+
+    const validationState = copilotSessionData?.memory?.validationState;
+    if (validationState && validationState.status && validationState.status !== "not_run") {
+      setDraftValidationOutput(withSourceKey(adaptCopilotValidationReport({
+        status: validationState.status,
+        missingSections: validationState.missingSections,
+        unsupportedClaims: validationState.unsupportedClaims,
+        citationIssues: validationState.citationIssues,
+        suggestedFixes: validationState.warnings
+      }), draftValidationStateKey));
+    }
+  }, [copilotSessionData, draftValidationStateKey]);
+
+  const openCopilotChat = () => {
+    setCopilotChatOpen(true);
+  };
+
+  const closeCopilotChat = () => {
+    setCopilotChatOpen(false);
+  };
+
+  const sendCopilotMessage = async (rawMessage = "") => {
+    const messageSource = String(rawMessage || copilotInput || "");
+    const message = messageSource.trim();
+    if (!message) return;
+    const shouldClearComposer = !rawMessage;
+
+    if (shouldClearComposer) {
+      setCopilotInput("");
+    }
+
+    const authorityToRemove = extractAuthorityToRemove(message);
+    const wantsNoiseCleanup = /noise|noice|irrelevant|unnecessary|only relevant|relevant ga unna vati|vatine chupinchu|clean up|cleanup/.test(message.toLowerCase())
+      && /remove|delete|teesey|chupinchu|unchey|clean/i.test(message.toLowerCase());
+    const isRemoveAuthorityAction = Boolean(authorityToRemove) && /remove|delete|teesey/i.test(message);
+    const isBulkNoiseCleanupAction = wantsNoiseCleanup && !authorityToRemove;
+
+    if (isBulkNoiseCleanupAction) {
+      const noisePattern = /article 14|article 21|constitution|maneka gandhi|d\.k\. basu|lalita kumari|consumer protection|bnss section 173|section 173/i;
+      let removedLabels = [];
+
+      setLawyerOutput((current) => {
+        if (!current) return current;
+
+        const nextOutput = {
+          ...current,
+          applicableSections: (Array.isArray(current.applicableSections) ? current.applicableSections : []).filter((item) => {
+            const match = noisePattern.test(String(item || ""));
+            if (match) removedLabels.push(String(item));
+            return !match;
+          }),
+          citations: (Array.isArray(current.citations) ? current.citations : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`.trim();
+            const match = noisePattern.test(label);
+            if (match) removedLabels.push(label);
+            return !match;
+          }),
+          caseLaws: (Array.isArray(current.caseLaws) ? current.caseLaws : []).filter((item) => {
+            const label = formatAuthorityLabel(item);
+            const match = noisePattern.test(label);
+            if (match) removedLabels.push(label);
+            return !match;
+          }),
+          retrievedAuthorities: (Array.isArray(current.retrievedAuthorities) ? current.retrievedAuthorities : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`.trim();
+            const match = noisePattern.test(label);
+            if (match) removedLabels.push(label);
+            return !match;
+          }),
+          bestCases: (Array.isArray(current.bestCases) ? current.bestCases : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`.trim();
+            const match = noisePattern.test(label);
+            if (match) removedLabels.push(label);
+            return !match;
+          }),
+          relatedJudgments: (Array.isArray(current.relatedJudgments) ? current.relatedJudgments : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`.trim();
+            const match = noisePattern.test(label);
+            if (match) removedLabels.push(label);
+            return !match;
+          })
+        };
+
+        return nextOutput;
+      });
+
+      removedLabels = Array.from(new Set(removedLabels.filter(Boolean)));
+
+      const userMessage = {
+        id: `copilot-user-${Date.now()}`,
+        role: "user",
+        text: message
+      };
+      const assistantMessage = {
+        id: `copilot-assistant-${Date.now() + 1}`,
+        role: "assistant",
+        text: removedLabels.length
+          ? `Current workspace nundi unnecessary noise remove chesanu. Ivi delete ayyayi: ${removedLabels.join(", ")}. Ippudu relevant authorities meeda focus cheyyachu.`
+          : "Current visible workspace lo obvious noise items dorakaledu. Kani nenu next relevant-only summary ivvagalanu."
+      };
+
+      setCopilotMessages((current) => [...current, userMessage, assistantMessage]);
+      return;
+    }
+
+    if (isRemoveAuthorityAction) {
+      const needle = authorityToRemove.toLowerCase();
+      let removed = false;
+
+      setLawyerOutput((current) => {
+        if (!current) return current;
+
+        const matchesAuthority = (value = "") => {
+          const label = String(value || "").toLowerCase();
+          return label.includes(needle)
+            || needle.includes(label)
+            || (/article 21/.test(needle) && /article 21/.test(label))
+            || (/maneka gandhi/.test(needle) && /maneka gandhi/.test(label))
+            || (/consumer protection/.test(needle) && /consumer protection/.test(label))
+            || (/bnss section 173|section 173/.test(needle) && /(bnss section 173|section 173|information in cognizable cases)/.test(label))
+            || (/bharatiya sakshya adhiniyam|bsa|evidence/.test(needle) && /(bharatiya sakshya adhiniyam|bsa|evidence)/.test(label));
+        };
+
+        const nextOutput = {
+          ...current,
+          applicableSections: (Array.isArray(current.applicableSections) ? current.applicableSections : []).filter((item) => {
+            const keep = !matchesAuthority(item);
+            if (!keep) removed = true;
+            return keep;
+          }),
+          citations: (Array.isArray(current.citations) ? current.citations : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`;
+            const keep = !matchesAuthority(label);
+            if (!keep) removed = true;
+            return keep;
+          }),
+          caseLaws: (Array.isArray(current.caseLaws) ? current.caseLaws : []).filter((item) => {
+            const label = formatAuthorityLabel(item);
+            const keep = !matchesAuthority(label);
+            if (!keep) removed = true;
+            return keep;
+          }),
+          retrievedAuthorities: (Array.isArray(current.retrievedAuthorities) ? current.retrievedAuthorities : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`;
+            const keep = !matchesAuthority(label);
+            if (!keep) removed = true;
+            return keep;
+          }),
+          bestCases: (Array.isArray(current.bestCases) ? current.bestCases : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`;
+            const keep = !matchesAuthority(label);
+            if (!keep) removed = true;
+            return keep;
+          }),
+          relatedJudgments: (Array.isArray(current.relatedJudgments) ? current.relatedJudgments : []).filter((item) => {
+            const label = `${item?.title || ""} ${item?.citation || ""}`;
+            const keep = !matchesAuthority(label);
+            if (!keep) removed = true;
+            return keep;
+          })
+        };
+
+        return nextOutput;
+      });
+
+      const userMessage = {
+        id: `copilot-user-${Date.now()}`,
+        role: "user",
+        text: message
+      };
+      const assistantMessage = {
+        id: `copilot-assistant-${Date.now() + 1}`,
+        role: "assistant",
+        text: removed
+          ? `"${authorityToRemove}" ni current workspace nundi remove chesanu. Miku kavali ante next relevant replacement authority kuda suggest chestha.`
+          : `"${authorityToRemove}" exact match current visible workspace lo dorakaledu. Different label tho undemo verify cheyyi.`
+      };
+
+      setCopilotMessages((current) => [...current, userMessage, assistantMessage]);
+      return;
+    }
+
+    const userMessage = {
+      id: `copilot-user-${Date.now()}`,
+      role: "user",
+      text: message
+    };
+    setCopilotMessages((current) => [...current, userMessage]);
+
+    let assistantText = "";
+    if (copilotBackendUnavailable) {
+      assistantText = buildCopilotReply(message, copilotContext);
+      const assistantMessage = {
+        id: `copilot-assistant-${Date.now() + 1}`,
+        role: "assistant",
+        text: `Local copilot mode:\n${assistantText}`
+      };
+      setCopilotMessages((current) => [...current, assistantMessage]);
+      if (shouldClearComposer) {
+        setCopilotInput("");
+      }
+      setStatus("Copilot is running in local fallback mode.");
+      return;
+    }
+    try {
+      setCopilotSessionBusy(true);
+      const sessionId = await ensureCopilotSession();
+      const normalizedMessage = message.toLowerCase();
+      const shouldSyncFirst = Boolean(String(copilotIntakePayload.factsSummary || "").trim());
+
+      if (shouldSyncFirst) {
+        await syncCopilotSession(sessionId, { buildContext: true });
+      } else {
+        await refreshCopilotSessionState(sessionId);
+      }
+
+      if (/allowed actions|em actions|what can you do|next actions|workflow/.test(normalizedMessage)) {
+        assistantText = copilotAllowedActions.length
+          ? `Current copilot workflow lo available actions: ${copilotAllowedActions.join(", ")}.`
+          : "Current session lo first intake/context complete avvali. Facts or matter summary share chesthe next actions unlock avutayi.";
+      } else if (/build context|prepare context|context ready|research context/.test(normalizedMessage)) {
+        const response = await buildCopilotContext(sessionId, {});
+        setCopilotSessionData(response || null);
+        await refreshCopilotSessionState(sessionId);
+        const sections = Array.isArray(response?.memory?.contextPacket?.sections) ? response.memory.contextPacket.sections : [];
+        const judgments = Array.isArray(response?.memory?.contextPacket?.judgments) ? response.memory.contextPacket.judgments : [];
+        assistantText = `Context ready. ${sections.length} section references and ${judgments.length} judgment references current matter ki attach అయ్యాయి.`;
+      } else if (/validate|review draft|check draft|missing sections/.test(normalizedMessage)) {
+        const response = await validateCopilotDraft(sessionId, {
+          documentType: copilotIntakePayload.documentType || draftType || "notice",
+          documentText: copilotContext.draft || lawyerOutput?.draft || ""
+        });
+        const report = response?.report || {};
+        const missingSections = Array.isArray(report.missingSections) ? report.missingSections : [];
+        const fixes = Array.isArray(report.suggestedFixes) ? report.suggestedFixes : [];
+        setDraftValidationOutput(withSourceKey(adaptCopilotValidationReport(report), draftValidationStateKey));
+        setLawyerTab("draft-validation");
+        setCopilotSessionData(response || null);
+        await refreshCopilotSessionState(sessionId);
+        assistantText = [
+          `Validation status: ${report.status || "unknown"}.`,
+          missingSections.length ? `Missing sections: ${missingSections.join(", ")}.` : "No major section gaps flagged.",
+          fixes.length ? `Suggested fixes: ${fixes.slice(0, 3).join(", ")}.` : ""
+        ].filter(Boolean).join(" ");
+      } else if (/filing|file chey|readiness|checklist|final step/.test(normalizedMessage)) {
+        const response = await fetchFilingGuidance(sessionId, {});
+        const checklist = Array.isArray(response?.checklist) ? response.checklist : [];
+        setCopilotSessionData(response || null);
+        await refreshCopilotSessionState(sessionId);
+        await runFilingPackReadiness();
+        assistantText = checklist.length
+          ? `Filing checklist ready:\n- ${checklist.join("\n- ")}`
+          : "Filing guidance request complete ayyindi.";
+      } else if (/draft|notice|complaint|petition|affidavit|generate document|prepare draft/.test(normalizedMessage)) {
+        const requestedDocumentType = /notice/.test(normalizedMessage)
+          ? "notice"
+          : /affidavit/.test(normalizedMessage)
+            ? "affidavit"
+            : /petition/.test(normalizedMessage)
+              ? "petition"
+              : "complaint";
+        const response = await generateCopilotDraft(sessionId, {
+          documentType: requestedDocumentType
+        });
+        const draftText = String(response?.document?.content || "").trim();
+        setCopilotDraftMeta(response?.generationMeta || null);
+        setDraftType(requestedDocumentType);
+        setDraftValidationOutput(null);
+        setFilingPackOutput(null);
+        if (draftText) {
+          setLawyerOutput((current) => ({
+            ...(current || {}),
+            draft: draftText
+          }));
+        }
+        setLawyerTab("draft");
+        setCopilotSessionData(response || null);
+        await refreshCopilotSessionState(sessionId);
+        assistantText = draftText
+          ? response?.generationMeta?.fallbackUsed
+            ? `Session-based ${requestedDocumentType} draft ready using fallback mode. Provider: ${response.generationMeta.provider || "unknown"}. Code: ${response.generationMeta.diagnosticCode || "fallback"}. Reason: ${response.generationMeta.failureReason || "provider unavailable"}. Draft tab lo continue refine cheyyachu.`
+            : `Session-based ${requestedDocumentType} draft ready. Draft tab lo continue refine cheyyachu.`
+          : "Draft generation attempt complete ayyindi kani usable text raaledu.";
+      } else {
+        const historyPayload = copilotMessages.slice(-8).map((item) => ({
+          role: item.role,
+          text: item.text
+        }));
+        const response = sessionId
+          ? await sendCopilotChatMessage(sessionId, {
+              message,
+              history: historyPayload
+            })
+          : await runCopilotChat({
+              ownerId,
+              message,
+              facts: copilotContext.facts,
+              draft: copilotContext.draft,
+              output: copilotContext.output,
+              tab: copilotContext.tab,
+              history: historyPayload
+            });
+
+        assistantText = String(response?.reply || "").trim();
+        if (!assistantText) {
+          assistantText = buildCopilotReply(message, copilotContext);
+        }
+        if (response?.draft && String(response.draft).trim()) {
+          setLawyerOutput((current) => ({
+            ...(current || {}),
+            draft: String(response.draft).trim()
+          }));
+        }
+      }
+    } catch (error) {
+      const detail = String(error?.message || "").trim();
+      const localFallback = buildCopilotReply(message, copilotContext);
+      setCopilotBackendUnavailable(true);
+      assistantText = detail
+        ? `Copilot backend unreachable: ${detail}\n\nLocal fallback:\n${localFallback}`
+        : localFallback;
+      setStatus("Copilot backend request failed.");
+    } finally {
+      setCopilotSessionBusy(false);
+    }
+
+    const assistantMessage = {
+      id: `copilot-assistant-${Date.now() + 1}`,
+      role: "assistant",
+      text: assistantText
+    };
+
+    setCopilotMessages((current) => [...current, assistantMessage]);
+    if (shouldClearComposer) {
+      setCopilotInput("");
+    }
+  };
+
+  const handleCopilotSubmit = (event) => {
+    event.preventDefault();
+    sendCopilotMessage();
+  };
+
+  const handleCopilotKeyDown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleCopilotSubmit(event);
+    }
+  };
+
+  const handleCopilotFileUpload = async (file) => {
+    if (!file) return;
+    await extractFromFile(
+      file,
+      (extractedText) => {
+        const text = String(extractedText || "").trim();
+        if (!text) return;
+        setCopilotInput((current) => current ? `${current}\n\n${text}` : text);
+        setCopilotMessages((current) => [
+          ...current,
+          {
+            id: `copilot-file-${Date.now()}`,
+            role: "assistant",
+            text: `Loaded ${file.name}. I added the extracted text into the chat composer so you can ask questions or use it for draft changes.`
+          }
+        ]);
+        setCopilotChatOpen(true);
+      },
+      setCopilotAttachmentMeta
+    );
+  };
+
+  const sendWorkspaceToCopilot = (value = "", label = "Current workspace") => {
+    const message = buildWorkspaceForwardMessage({
+      label,
+      value,
+      workspaceState: sharedWorkspaceState
+    });
+    if (!message) {
+      setStatus(`${label} is empty right now.`);
+      return;
+    }
+
+    setCopilotChatOpen(true);
+    sendCopilotMessage(message);
+  };
+
   const saveClient = async () => {
     if (!clientName.trim()) return;
-    await runLegalAction("client_upsert", {
-      ownerId,
-      client: {
-        name: clientName,
-        phone: clientPhone,
-        notes: clientNotes
-      }
+    const payload = buildClientUpsertPayload({
+      name: clientName,
+      phone: clientPhone,
+      notes: clientNotes
     });
-    setClientName("");
-    setClientPhone("");
-    setClientNotes("");
-    hydrateLawyerData();
+    try {
+      await runLegalAction("client_upsert", {
+        ownerId,
+        client: payload
+      });
+      setClientName("");
+      setClientPhone("");
+      setClientNotes("");
+      hydrateLawyerData();
+      setStatus("Client saved.");
+    } catch (error) {
+      const fallbackClient = {
+        ...payload,
+        id: payload.id || `client-${Date.now()}`
+      };
+      setClients((current) => [fallbackClient, ...(current || []).filter((item) => item.id !== fallbackClient.id)]);
+      setClientName("");
+      setClientPhone("");
+      setClientNotes("");
+      setStatus(error?.message ? `Client saved locally. ${error.message}` : "Client saved locally.");
+    }
   };
 
   const saveCase = async () => {
     if (!caseTitle.trim()) return;
-    await runLegalAction("case_upsert", {
-      ownerId,
-      caseItem: {
-        clientId: selectedClientId,
-        title: caseTitle,
-        stage: caseStage,
-        notes: caseNotes,
-        nextHearingDate: caseNextDate
-      }
+    const payload = buildCaseUpsertPayload({
+      clientId: selectedClientId,
+      title: caseTitle,
+      stage: caseStage,
+      notes: caseNotes,
+      nextHearingDate: caseNextDate
     });
     const nextSelectedId = selectedMatterId;
-    setSelectedClientId("");
-    setCaseTitle("");
-    setCaseStage("Draft");
-    setCaseNextDate("");
-    setCaseNotes("");
-    if (!nextSelectedId) {
-      setSelectedMatterId("");
+    try {
+      await runLegalAction("case_upsert", {
+        ownerId,
+        caseItem: payload
+      });
+      setSelectedClientId("");
+      setCaseTitle("");
+      setCaseStage("Draft");
+      setCaseNextDate("");
+      setCaseNotes("");
+      if (!nextSelectedId) {
+        setSelectedMatterId("");
+      }
+      hydrateLawyerData();
+      setStatus("Case saved.");
+    } catch (error) {
+      const fallbackCase = {
+        ...payload,
+        id: payload.id || `case-${Date.now()}`
+      };
+      setCases((current) => [fallbackCase, ...(current || []).filter((item) => item.id !== fallbackCase.id)]);
+      setSelectedClientId("");
+      setCaseTitle("");
+      setCaseStage("Draft");
+      setCaseNextDate("");
+      setCaseNotes("");
+      if (!nextSelectedId) {
+        setSelectedMatterId(fallbackCase.id);
+      }
+      setStatus(error?.message ? `Case saved locally. ${error.message}` : "Case saved locally.");
     }
-    hydrateLawyerData();
   };
 
   const saveTask = async () => {
     if (!taskTitle.trim()) return;
-    await runLegalAction("task_upsert", {
-      ownerId,
-      task: {
-        title: taskTitle,
-        dueDate: taskDueDate,
-        status: "pending",
-        relatedCaseId: selectedMatter?.id || ""
-      }
+    const payload = buildTaskUpsertPayload({
+      title: taskTitle,
+      dueDate: taskDueDate,
+      status: "pending",
+      relatedCaseId: selectedMatter?.id || ""
     });
-    setTaskTitle("");
-    setTaskDueDate("");
-    hydrateLawyerData();
+    try {
+      await runLegalAction("task_upsert", {
+        ownerId,
+        task: payload
+      });
+      setTaskTitle("");
+      setTaskDueDate("");
+      hydrateLawyerData();
+      setStatus("Task saved.");
+    } catch (error) {
+      const fallbackTask = {
+        ...payload,
+        id: payload.id || `task-${Date.now()}`
+      };
+      setTasks((current) => [fallbackTask, ...(current || []).filter((item) => item.id !== fallbackTask.id)]);
+      setTaskTitle("");
+      setTaskDueDate("");
+      setStatus(error?.message ? `Task saved locally. ${error.message}` : "Task saved locally.");
+    }
   };
 
   const updateTaskStatus = async (taskId, statusValue) => {
     const existingTask = (tasks || []).find((item) => item.id === taskId);
     if (!existingTask) return;
+    const nextTask = buildTaskStatusUpdatePayload(existingTask, statusValue);
+    if (!nextTask) return;
 
-    await runLegalAction("task_upsert", {
-      ownerId,
-      task: {
-        ...existingTask,
-        id: taskId,
-        status: statusValue
-      }
-    });
-    setStatus(`Task marked as ${statusValue}.`);
-    hydrateLawyerData();
+    try {
+      await runLegalAction("task_upsert", {
+        ownerId,
+        task: nextTask
+      });
+      setStatus(`Task marked as ${statusValue}.`);
+      hydrateLawyerData();
+    } catch (error) {
+      setTasks((current) => (current || []).map((item) => item.id === taskId ? nextTask : item));
+      setStatus(error?.message ? `Task updated locally. ${error.message}` : `Task updated locally as ${statusValue}.`);
+    }
   };
 
   const saveMemory = async () => {
     if (!memoryTitle.trim()) return;
-    await runLegalAction("memory_save", {
-      ownerId,
-      memory: {
-        title: memoryTitle,
-        summary: memorySummary,
-        tags: memoryTitle.split(" ").slice(0, 4)
-      }
+    const payload = buildMemorySavePayload({
+      title: memoryTitle,
+      summary: memorySummary
     });
-    setMemoryTitle("");
-    setMemorySummary("");
-    setStatus("Memory saved.");
-    hydrateLawyerData();
+    try {
+      await runLegalAction("memory_save", {
+        ownerId,
+        memory: payload
+      });
+      setMemoryTitle("");
+      setMemorySummary("");
+      setStatus("Memory saved.");
+      hydrateLawyerData();
+    } catch (error) {
+      const fallbackMemory = {
+        ...payload,
+        id: payload.id || `memory-${Date.now()}`
+      };
+      setSavedMemories((current) => [fallbackMemory, ...(current || []).filter((item) => item.id !== fallbackMemory.id)]);
+      setMemoryTitle("");
+      setMemorySummary("");
+      setStatus(error?.message ? `Memory saved locally. ${error.message}` : "Memory saved locally.");
+    }
   };
 
   const suggestMemory = async () => {
-    const response = await runLegalAction("memory_suggest", {
-      ownerId,
-      query: memoryQuery
-    });
-    setMemorySuggestions(response.suggestions || []);
+    try {
+      const response = await runLegalAction("memory_suggest", {
+        ownerId,
+        query: memoryQuery
+      });
+      setMemorySuggestions(response.suggestions || []);
+      setStatus("Suggested similar cases ready.");
+    } catch (error) {
+      const localSuggestions = buildLocalMemorySuggestions({
+        query: memoryQuery,
+        memories: savedMemories
+      });
+      setMemorySuggestions(localSuggestions);
+      setStatus(
+        isServiceUnavailableError(error)
+          ? "Suggested similar cases prepared with local fallback."
+          : (error?.message || "Could not suggest similar cases.")
+      );
+    }
   };
 
   const loadMemoryIntoResearch = (memoryItem) => {
-    const prompt = [
-      `Memory Title: ${memoryItem.title || "Untitled memory"}`,
-      `Summary: ${memoryItem.summary || "No summary"}`,
-      Array.isArray(memoryItem.tags) && memoryItem.tags.length ? `Tags: ${memoryItem.tags.join(", ")}` : ""
-    ].filter(Boolean).join("\n");
+    const prompt = buildMemoryResearchPrompt(memoryItem);
     setLawyerInput(prompt);
     setLawyerTab("research");
     setStatus(`Loaded memory "${memoryItem.title || "memory"}" into research.`);
@@ -3360,53 +6490,29 @@ function LawAssistantPage() {
 
   const loadMatterIntoResearch = () => {
     if (!selectedMatter) return;
-    const prompt = [
-      `Matter: ${selectedMatter.title || "Untitled case"}`,
-      selectedMatterClient ? `Client: ${selectedMatterClient.name || "Unnamed client"} | ${selectedMatterClient.phone || "No phone"}` : "",
-      `Stage: ${selectedMatter.stage || "Draft"}`,
-      `Next Hearing: ${selectedMatter.nextHearingDate || "Not set"}`,
-      selectedMatter.notes ? `Matter Notes:\n${selectedMatter.notes}` : "",
-      chronologyEntries.length
-        ? `Chronology:\n${chronologyEntries.map((item) => `${item.date || "No date"} - ${item.event}`).join("\n")}`
-        : "",
-      selectedMatterTasks.length
-        ? `Pending Tasks:\n${selectedMatterTasks.map((item) => `- ${item.title || "Task"} (${item.dueDate || "No deadline"})`).join("\n")}`
-        : "",
-      hearingNotes ? `Hearing Notes:\n${hearingNotes}` : "",
-      "Prepare research issues, risks, and next procedural steps."
-    ].filter(Boolean).join("\n\n");
+    const prompt = buildMatterResearchPrompt({
+      selectedMatter,
+      selectedMatterClient,
+      chronologyEntries,
+      selectedMatterTasks,
+      hearingNotes
+    });
     setLawyerInput(prompt);
     setLawyerTab("research");
     setStatus(`Loaded matter workspace for ${selectedMatter.title || "selected case"} into research.`);
   };
 
   const exportMatterPrep = () => {
-    if (!selectedMatter && !chronologyEntries.length && !selectedMatterTasks.length && !hearingNotes.trim()) {
+    const content = buildMatterPrepSheet({
+      selectedMatter,
+      selectedMatterClient,
+      chronologyEntries,
+      selectedMatterTasks,
+      hearingNotes
+    });
+    if (!content) {
       return;
     }
-
-    const content = [
-      "MATTER PREP SHEET",
-      "",
-      `Matter: ${selectedMatter?.title || "Not selected"}`,
-      `Client: ${selectedMatterClient?.name || "Not linked"}`,
-      `Stage: ${selectedMatter?.stage || "Not set"}`,
-      `Next Hearing: ${selectedMatter?.nextHearingDate || "Not set"}`,
-      `Matter Notes: ${selectedMatter?.notes || "No notes added"}`,
-      "",
-      "Chronology:",
-      chronologyEntries.length
-        ? chronologyEntries.map((item) => `- ${item.date || "No date"} | ${item.event}`).join("\n")
-        : "Not prepared",
-      "",
-      "Pending Tasks:",
-      selectedMatterTasks.length
-        ? selectedMatterTasks.map((item) => `- ${item.title || "Task"} | ${item.dueDate || "No deadline"} | ${item.status || "pending"}`).join("\n")
-        : "No linked tasks",
-      "",
-      "Hearing Prep Notes:",
-      hearingNotes || "No notes added"
-    ].join("\n");
 
     saveTextFile("matter-prep-sheet.txt", content);
     setStatus("Matter prep sheet exported.");
@@ -3627,8 +6733,10 @@ ${PUBLIC_DISCLAIMER}`;
       await runLegalAction("memory_save", {
         ownerId,
         memory: {
-          title: citationText,
-          summary: "Pinned citation from AI output for future case reference.",
+          ...buildMemorySavePayload({
+            title: citationText,
+            summary: "Pinned citation from AI output for future case reference."
+          }),
           tags: ["citation", "pinned"]
         }
       });
@@ -3657,17 +6765,23 @@ ${PUBLIC_DISCLAIMER}`;
             Public User Mode
           </button>
           <button type="button" className={mode === "lawyer" ? "header-pill" : "ghost-button"} onClick={() => setSearchParams({ mode: "lawyer" })}>
-            Lawyer Mode
+            Associate Mode
+          </button>
+          <button type="button" className={mode === "senior" ? "header-pill" : "ghost-button"} onClick={() => setSearchParams({ mode: "senior" })}>
+            Senior Review Mode
+          </button>
+          <button type="button" className={mode === "firm" ? "header-pill" : "ghost-button"} onClick={() => setSearchParams({ mode: "firm" })}>
+            Firm Mode
           </button>
         </div>
       </div>
 
       {!hasRole[mode] ? (
         <div className="soft-panel law-role-card">
-          <h3>{mode === "lawyer" ? "Activate Lawyer Role" : "Activate Public Role"}</h3>
+          <h3>{mode === "public" ? "Activate Public Role" : mode === "senior" ? "Activate Senior Review Role" : mode === "firm" ? "Activate Firm Role" : "Activate Lawyer Role"}</h3>
           <p className="muted-copy">Login already complete. Finish role signup here to open the dedicated legal module.</p>
-          <button type="button" className="primary-button" onClick={() => activateRole(mode)}>
-            Signup as {mode === "lawyer" ? "Lawyer" : "Public User"}
+          <button type="button" className="primary-button" onClick={() => activateRole(mode === "public" ? "public" : mode === "senior" ? "senior" : mode === "firm" ? "firm" : "lawyer")}>
+            Signup as {mode === "public" ? "Public User" : mode === "senior" ? "Senior Reviewer" : mode === "firm" ? "Firm Admin" : "Lawyer"}
           </button>
         </div>
       ) : null}
@@ -3876,7 +6990,7 @@ ${PUBLIC_DISCLAIMER}`;
             </div>
             <div className="law-tab-list">
               {LAWYER_TABS.map((tab) => (
-                <button key={tab.id} type="button" className={lawyerTab === tab.id ? "header-pill" : "ghost-button"} onClick={() => { setLawyerTab(tab.id); setLawyerOutput(null); }}>
+                <button key={tab.id} type="button" className={lawyerTab === tab.id ? "header-pill" : "ghost-button"} onClick={() => { setLawyerTab(tab.id); }}>
                   {tab.label}
                 </button>
               ))}
@@ -3948,7 +7062,7 @@ ${PUBLIC_DISCLAIMER}`;
                     {intakeOutput.retrievedAuthorities?.length ? (
                       <>
                         <h4>Retrieved Authorities</h4>
-                        {renderAuthorities(intakeOutput.retrievedAuthorities, revalidateAuthorityNow)}
+                        {renderAuthorities(intakeOutput.retrievedAuthorities, revalidateAuthorityNow, openJudgmentDetails, toggleCompareJudgment)}
                       </>
                     ) : null}
                     <div className="law-inline-actions">
@@ -4350,6 +7464,18 @@ ${PUBLIC_DISCLAIMER}`;
                   <button type="button" className="ghost-button" onClick={() => revalidateAuthorityNow(citationTargetCase)} disabled={busy || !(citationTargetCase || citationView)}>
                     Revalidate Now
                   </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setCitationView(null);
+                      setCitationExpanded({});
+                      setLawyerTab("judgments");
+                      setStatus("Returned to latest judgments.");
+                    }}
+                  >
+                    Back To Judgments
+                  </button>
                 </div>
                 {citationView ? (
                   <div className="law-output-block">
@@ -4466,6 +7592,50 @@ ${PUBLIC_DISCLAIMER}`;
 
                 {memoOutput ? (
                   <div className="law-output-block">
+                    {(copilotContextPacket.authoritiesSummary || copilotContextPacket.sections?.length || copilotContextPacket.judgments?.length) ? (
+                      <>
+                        <h4>Copilot Session Context</h4>
+                        <div className="soft-panel" style={{ marginBottom: "16px" }}>
+                          <p className="muted-copy">
+                            Session-backed retrieval summary for the active matter. Use this to cross-check what the copilot attached before drafting or validating.
+                          </p>
+                          {copilotContextPacket.authoritiesSummary ? <p>{copilotContextPacket.authoritiesSummary}</p> : null}
+                          <div className="law-extract-meta">
+                            <div><strong>Sections:</strong> {copilotContextPacket.sections?.length || 0}</div>
+                            <div><strong>Judgments:</strong> {copilotContextPacket.judgments?.length || 0}</div>
+                            <div><strong>Workflow:</strong> {copilotSessionData?.session?.workflowState || "intake"}</div>
+                          </div>
+                          {copilotContextPacket.judgmentSourceSummary?.length ? (
+                            <p className="muted-copy">
+                              <strong>Judgment Sources:</strong> {copilotContextPacket.judgmentSourceSummary.join(", ")}
+                            </p>
+                          ) : null}
+                          {copilotContextPacket.sections?.length ? (
+                            <>
+                              <h4>Scoped Sections</h4>
+                              <ul>{renderList(copilotContextPacket.sections.slice(0, 6))}</ul>
+                            </>
+                          ) : null}
+                          {copilotContextPacket.judgments?.length ? (
+                            <>
+                              <h4>Scoped Judgments</h4>
+                              <ul>
+                                {copilotContextPacket.judgments.slice(0, 5).map((item, index) => (
+                                  <li key={`copilot-context-judgment-${item.case_name || item.caseName || item.title || index}`}>
+                                    <strong>{[item.case_name || item.caseName || item.title, item.citation].filter(Boolean).join(" | ")}</strong>
+                                    {(item.authorityStatus || item.riskLevel) ? ` | ${item.authorityStatus || "verify"} | Risk ${item.riskLevel || "unknown"}` : ""}
+                                    {item.judgmentDate ? ` | ${item.judgmentDate}` : ""}
+                                    {item.sourceType ? ` | Source ${item.sourceType}` : ""}
+                                    {item.holding ? <div className="muted-copy">{item.holding}</div> : null}
+                                    {item.authorityWarning ? <div className="muted-copy">Caution: {item.authorityWarning}</div> : null}
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : null}
                     <h4>Issue List</h4>
                     <ul>{renderList(memoOutput.issueList)}</ul>
                     <h4>Key Authorities</h4>
@@ -4532,7 +7702,7 @@ ${PUBLIC_DISCLAIMER}`;
                     {memoOutput.retrievedAuthorities?.length ? (
                       <>
                         <h4>Retrieved Authorities</h4>
-                        {renderAuthorities(memoOutput.retrievedAuthorities, revalidateAuthorityNow)}
+                        {renderAuthorities(memoOutput.retrievedAuthorities, revalidateAuthorityNow, openJudgmentDetails, toggleCompareJudgment)}
                       </>
                     ) : null}
                     {renderTraceability(memoOutput.traceability)}
@@ -5159,7 +8329,7 @@ ${PUBLIC_DISCLAIMER}`;
                     {noticeOutput.retrievedAuthorities?.length ? (
                       <>
                         <h4>Retrieved Authorities</h4>
-                        {renderAuthorities(noticeOutput.retrievedAuthorities, revalidateAuthorityNow)}
+                        {renderAuthorities(noticeOutput.retrievedAuthorities, revalidateAuthorityNow, openJudgmentDetails, toggleCompareJudgment)}
                       </>
                     ) : null}
                   </div>
@@ -5180,6 +8350,7 @@ ${PUBLIC_DISCLAIMER}`;
                       Draft Type
                       <select value={draftType} onChange={(event) => setDraftType(event.target.value)}>
                         <option value="petition">Petition</option>
+                        <option value="complaint">Complaint</option>
                         <option value="notice">Legal Notice</option>
                         <option value="agreement">Agreement</option>
                         <option value="affidavit">Affidavit</option>
@@ -5225,6 +8396,21 @@ ${PUBLIC_DISCLAIMER}`;
                   </label>
                 ) : null}
                 <div className="law-inline-actions">
+                  <button type="button" className="primary-button law-copilot-launch" onClick={openCopilotChat}>
+                    Open Copilot Chat
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => sendWorkspaceToCopilot(lawyerTab === "document" ? docText : lawyerInput, lawyerTab === "document" ? "Document text" : "Matter facts")}
+                  >
+                    Send Current Text
+                  </button>
+                  {lawyerOutput?.draft ? (
+                    <button type="button" className="ghost-button" onClick={() => sendWorkspaceToCopilot(lawyerOutput.draft, "Current draft")}>
+                      Send Draft
+                    </button>
+                  ) : null}
                   <button type="button" className="ghost-button" onClick={() => startVoiceInput(lawyerTab === "document" ? setDocText : setLawyerInput)}>Voice Command</button>
                   {lawyerTab === "document" ? (
                     <label className="ghost-button law-upload-button">
@@ -5256,6 +8442,14 @@ ${PUBLIC_DISCLAIMER}`;
                       <div className="law-extract-meta">
                         <div><strong>OCR Quality:</strong> {lawyerExtractionMeta.qualityScore}%</div>
                         <div><strong>Engine:</strong> {lawyerExtractionMeta.extractionEngine}</div>
+                      </div>
+                    ) : null}
+                    {lawyerTab === "draft" && copilotDraftMeta?.fallbackUsed ? (
+                      <div className="law-disclaimer" style={{ background: "#fff5d6", color: "#8a6500" }}>
+                        AI provider output was not available, so this draft was generated in fallback mode.
+                        {copilotDraftMeta.provider ? ` Provider: ${copilotDraftMeta.provider}.` : ""}
+                        {copilotDraftMeta.diagnosticCode ? ` Code: ${copilotDraftMeta.diagnosticCode}.` : ""}
+                        {copilotDraftMeta.failureReason ? ` Reason: ${copilotDraftMeta.failureReason}.` : ""}
                       </div>
                     ) : null}
                     <div className="law-inline-actions">
@@ -5391,7 +8585,7 @@ ${PUBLIC_DISCLAIMER}`;
                     {lawyerOutput.retrievedAuthorities?.length ? (
                       <>
                         <h4>Retrieved Authorities</h4>
-                        {renderAuthorities(lawyerOutput.retrievedAuthorities, revalidateAuthorityNow)}
+                        {renderAuthorities(lawyerOutput.retrievedAuthorities, revalidateAuthorityNow, openJudgmentDetails, toggleCompareJudgment)}
                       </>
                     ) : null}
                     {lawyerTab === "document" ? renderTraceability(lawyerOutput.traceability) : null}
@@ -5717,6 +8911,9 @@ ${PUBLIC_DISCLAIMER}`;
         </section>
       ) : null}
 
+      {hasRole.senior && mode === "senior" ? renderSeniorReviewWorkspace() : null}
+      {hasRole.firm && mode === "firm" ? renderFirmWorkspace() : null}
+
       {status ? <div className="muted-copy">{status}</div> : null}
 
       <div className="muted-copy law-safety-note">
@@ -5730,8 +8927,164 @@ ${PUBLIC_DISCLAIMER}`;
         <p className="muted-copy">Public profile: {publicProfile ? "Ready" : "Not activated"}</p>
         <p className="muted-copy">Lawyer profile: {lawyerProfile ? "Ready" : "Not activated"}</p>
       </div>
+
+      {mode === "lawyer" && copilotChatOpen ? (
+        <div className="law-copilot-overlay" role="dialog" aria-modal="true" aria-label="Lawyer copilot chat">
+          <div className="law-copilot-sheet">
+            <div className="law-copilot-header">
+              <button type="button" className="ghost-button law-copilot-back" onClick={closeCopilotChat}>
+                Back
+              </button>
+              <div>
+                <strong>Copilot Chat</strong>
+                <p className="muted-copy">Use chat, screenshots, and workspace text to drive drafting changes.</p>
+                <p className="muted-copy">
+                  Session: {copilotBackendUnavailable ? "local-fallback" : copilotSessionId || "starting..."} | State: {copilotBackendUnavailable ? "local" : copilotSessionData?.session?.workflowState || "intake"}
+                  {copilotSessionBusy ? " | Syncing..." : ""}
+                </p>
+              </div>
+            </div>
+            {copilotBackendUnavailable ? (
+              <div className="law-disclaimer">
+                Copilot backend is unavailable right now. Chat will continue in local fallback mode until the backend is reachable again.
+              </div>
+            ) : null}
+
+            {showCopilotStarters ? (
+              <div className="law-copilot-starters">
+                {COPILOT_STARTERS.map((item) => (
+                  <button key={item} type="button" className="law-plan-chip law-copilot-starter-chip" onClick={() => sendCopilotMessage(item)}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {showCopilotStarters ? (
+              <div className="law-copilot-context">
+                <button type="button" className="ghost-button" onClick={() => sendWorkspaceToCopilot(lawyerTab === "document" ? docText : lawyerInput, lawyerTab === "document" ? "Document text" : "Matter facts")}>
+                  Use Current Text
+                </button>
+                {lawyerOutput?.draft ? (
+                  <button type="button" className="ghost-button" onClick={() => sendWorkspaceToCopilot(lawyerOutput.draft, "Current draft")}>
+                    Use Draft
+                  </button>
+                ) : null}
+                {lawyerOutput?.applicableSections?.length ? (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => sendWorkspaceToCopilot(lawyerOutput.applicableSections.join("\n"), "Current references")}
+                  >
+                    Use References
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="law-copilot-messages">
+              {copilotMessages.map((item) => (
+                <div key={item.id} className={item.role === "user" ? "law-copilot-bubble mine" : "law-copilot-bubble"}>
+                  <div className="law-copilot-bubble-role">{item.role === "user" ? "You" : "Copilot"}</div>
+                  <p>{item.text}</p>
+                </div>
+              ))}
+            </div>
+
+            <form className="law-copilot-composer" onSubmit={handleCopilotSubmit}>
+              {copilotAttachmentMeta ? (
+                <div className="law-copilot-attachment">
+                  <strong>{copilotAttachmentMeta.fileName || "Uploaded file"}</strong>
+                  <span>
+                    {copilotAttachmentMeta.mimeType || "document"}
+                    {copilotAttachmentMeta.qualityScore ? ` | OCR ${copilotAttachmentMeta.qualityScore}%` : ""}
+                  </span>
+                </div>
+              ) : null}
+              <textarea
+                rows={3}
+                value={copilotInput}
+                onChange={(event) => setCopilotInput(event.target.value)}
+                onKeyDown={handleCopilotKeyDown}
+                placeholder="Ask for draft changes, missing facts, legal basis, screenshot review, or reference guidance..."
+              />
+              <div className="law-inline-actions">
+                <label className="ghost-button law-upload-button">
+                  Attach File
+                  <input
+                    type="file"
+                    hidden
+                    onChange={(event) => handleCopilotFileUpload(event.target.files?.[0])}
+                    accept=".txt,.md,.json,.csv,.pdf,image/*"
+                  />
+                </label>
+                <button type="submit" className="primary-button">Send</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export default LawAssistantPage;
+export {
+  buildCaseUpsertPayload,
+  buildClientUpsertPayload,
+  getLocalReviewDraftStorageKey,
+  getLocalSeniorSelectionStorageKey,
+  getLocalFirmPreferencesStorageKey,
+  readLocalFirmActions,
+  readLocalFirmPreferences,
+  readLocalReviewDrafts,
+  writeLocalReviewDrafts,
+  readLocalSeniorSelection,
+  writeLocalSeniorSelection,
+  writeLocalFirmActions,
+  writeLocalFirmPreferences,
+  buildReviewStatusPresentation,
+  buildReviewQueue,
+  buildReviewRecordPayload,
+  buildReviewSnapshotRecord,
+  buildFirmDashboard,
+  buildFirmQueueView,
+  buildApprovedSnapshotsFromReviews,
+  buildReviewQueueSummary,
+  buildSnapshotTraceSummary,
+  buildSeniorReviewFacts,
+  buildSeniorRiskFlags,
+  buildCopilotIntakePayloadFromWorkspace,
+  buildLocalCoverageOutput,
+  buildLocalDocumentAnalysis,
+  buildLocalJudgmentMatches,
+  buildMatterPrepSheet,
+  buildMatterResearchPrompt,
+  buildMemoryResearchPrompt,
+  buildLocalMemorySuggestions,
+  buildMemorySavePayload,
+  buildLocalNoticePack,
+  buildLocalPredictionOutput,
+  buildLocalResearchMemo,
+  buildLocalResearchOutput,
+  buildLocalMatterConsistencyOutput,
+  buildLocalReadinessOutput,
+  buildLocalStrengthOutput,
+  buildChronology,
+  buildReviewFindingReasons,
+  buildReviewSummaryText,
+  filterAuditLogs,
+  getDateSeverity,
+  buildResearchPromptFromIntake,
+  buildTaskStatusUpdatePayload,
+  buildTaskUpsertPayload,
+  canApproveReview,
+  buildSharedWorkspaceState,
+  buildWorkspaceForwardMessage,
+  deriveRoleAccess,
+  buildLocalDraftValidationOutput,
+  buildLocalFilingPackOutput,
+  sanitizeFilingPackOutput,
+  selectSeniorReviewItem,
+  upsertReviewSnapshotList
+};

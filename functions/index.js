@@ -1,8 +1,10 @@
 const functions = require("firebase-functions");
 const axios = require("axios");
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 const cors = require("cors")({ origin: true });
+const { createCopilotApp } = require("./copilot/app");
 const { LEGAL_SYSTEM_PROMPTS } = require("./legalCorpus");
 const { LEGAL_JUDGMENTS_SEED } = require("./legalJudgmentsSeed");
 const { parseJudgmentSourcePayload } = require("./legalJudgmentParsers");
@@ -41,75 +43,24 @@ const { analyzeDocument, buildDocumentAnalysisMemo } = require("./documentAnalyz
 const { createLegalDocumentAnalyzeHandler } = require("./legalDocumentAnalyzeApi");
 const { buildTraceability } = require("./traceabilityService");
 const {
+  classifyCaseNature,
   normalizeSearchText,
   retrieveLegalContext,
   getLegacyLawNotice
 } = require("./legalUtils");
+const {
+  getConfigValue,
+  getGeminiKey,
+  getOpenAIKey,
+  getOpenAIModel,
+  getRazorpayKeyId,
+  getRazorpayKeySecret,
+  getWhatsappToken,
+  getWhatsappPhoneNumberId,
+  getLegalLiveRetrievalEnabled
+} = require("./configRuntime");
 
 admin.initializeApp();
-
-function getConfigValue(...values) {
-  return values.find((value) => typeof value === "string" && value.trim()) || "";
-}
-
-function getGeminiKey() {
-  return getConfigValue(
-    process.env.GEMINI_KEY,
-    process.env.gemini_key
-  );
-}
-
-function getOpenAIKey() {
-  return getConfigValue(
-    process.env.OPENAI_API_KEY,
-    process.env.openai_api_key
-  );
-}
-
-function getOpenAIModel() {
-  return getConfigValue(
-    process.env.OPENAI_MODEL,
-    process.env.openai_model
-  ) || "gpt-4.1-mini";
-}
-
-function getRazorpayKeyId() {
-  return getConfigValue(
-    process.env.RAZORPAY_KEY_ID,
-    process.env.razorpay_key_id
-  );
-}
-
-function getRazorpayKeySecret() {
-  return getConfigValue(
-    process.env.RAZORPAY_KEY_SECRET,
-    process.env.razorpay_key_secret
-  );
-}
-
-function getWhatsappToken() {
-  return getConfigValue(
-    process.env.WHATSAPP_TOKEN,
-    process.env.whatsapp_token
-  );
-}
-
-function getWhatsappPhoneNumberId() {
-  return getConfigValue(
-    process.env.WHATSAPP_PHONE_NUMBER_ID,
-    process.env.whatsapp_phone_id
-  );
-}
-
-function getLegalLiveRetrievalEnabled() {
-  const rawValue = String(getConfigValue(
-    process.env.LEGAL_LIVE_RETRIEVAL,
-    process.env.legal_live_retrieval
-  )).trim().toLowerCase();
-
-  if (!rawValue) return true;
-  return ["1", "true", "yes", "on"].includes(rawValue);
-}
 
 function safeJSONParse(rawText) {
   try {
@@ -147,7 +98,7 @@ async function writeLegalAudit(ownerId, action, requestSummary, status, meta = {
       requestSummary: String(requestSummary || "").slice(0, 1200),
       status: String(status || "ok"),
       meta,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+      createdAt: FieldValue.serverTimestamp()
     });
   } catch (error) {
     functions.logger.warn("Audit log write failed:", error.message);
@@ -288,6 +239,20 @@ function verifyRazorpayWebhookSignature(rawBodyBuffer, signature) {
 
 function sortJudgmentsByDate(items = []) {
   return items.slice().sort((a, b) => String(b.judgmentDate || "").localeCompare(String(a.judgmentDate || "")));
+}
+
+function normalizeSortableTimestamp(value) {
+  if (!value) return 0;
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  if (typeof value?._seconds === "number") {
+    return (value._seconds * 1000) + Math.floor(Number(value._nanoseconds || 0) / 1000000);
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function sortRecordsByTimestamp(items = [], fieldName) {
+  return items.slice().sort((a, b) => normalizeSortableTimestamp(b?.[fieldName]) - normalizeSortableTimestamp(a?.[fieldName]));
 }
 
 function sortJudgmentsByRelevance(items = [], query = "") {
@@ -767,6 +732,79 @@ async function callOpenAIJson({ systemPrompt, userPrompt, schemaHint, fallback }
     functions.logger.warn("OpenAI call fallback:", error.response?.data || error.message);
     return fallback;
   }
+}
+
+async function callOpenAIText({ systemPrompt, userPrompt }) {
+  const key = getOpenAIKey();
+  const geminiKey = getGeminiKey();
+
+  if (key) {
+    try {
+      const response = await axios.post(
+        "https://api.openai.com/v1/responses",
+        {
+          model: getOpenAIModel(),
+          input: [
+            { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+            { role: "user", content: [{ type: "input_text", text: userPrompt }] }
+          ],
+          temperature: 0.4
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      const output = String(response.data?.output_text || "").trim();
+      if (output) {
+        return output;
+      }
+      throw new Error("OpenAI returned an empty response.");
+    } catch (error) {
+      functions.logger.warn("OpenAI text error:", error.response?.data || error.message);
+    }
+  }
+
+  if (geminiKey) {
+    try {
+      const geminiResponse = await axios.post(
+        `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        {
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${systemPrompt}\n\n${userPrompt}`
+                }
+              ]
+            }
+          ]
+        },
+        {
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      const output = String(geminiResponse.data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+      if (output) {
+        return output;
+      }
+      throw new Error("Gemini returned an empty response.");
+    } catch (error) {
+      functions.logger.warn("Gemini text error:", error.response?.data || error.message);
+    }
+  }
+
+  if (!key && !geminiKey) {
+    throw new Error("No AI provider configured for Copilot chat.");
+  }
+
+  throw new Error("All Copilot AI providers failed.");
 }
 
 async function extractTextWithGemini({ mimeType, dataBase64, fileName = "document" }) {
@@ -1676,7 +1714,7 @@ Internet catalog matches: ${internetMatches.map((item) => `${item.name} | source
 // WhatsApp AI Function
 exports.whatsappAI = functions.https.onRequest(async (req, res) => {
   const geminiKey = getGeminiKey();
-  const webAppUrl = getConfigValue(process.env.WEB_APP_DOMAIN);
+  const webAppUrl = getWebAppUrl();
   const whatsappPhoneNumberId = getWhatsappPhoneNumberId();
   const whatsappToken = getWhatsappToken();
 
@@ -1685,22 +1723,25 @@ exports.whatsappAI = functions.https.onRequest(async (req, res) => {
     return res.status(500).send("Configuration error.");
   }
 
-  // ✅ Step 1: Webhook verification (GET request)
+  if (!whatsappPhoneNumberId || !whatsappToken) {
+    console.error("WhatsApp runtime params are missing: phone id or token.");
+    return res.status(500).send("WhatsApp configuration error.");
+  }
+
   if (req.method === "GET") {
-    const VERIFY_TOKEN = "medilink_verify_123";
+    const verifyToken = "medilink_verify_123";
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
 
-    if (mode && token && token === VERIFY_TOKEN) {
+    if (mode && token && token === verifyToken) {
       console.log("Webhook verified successfully!");
       return res.status(200).send(challenge);
-    } else {
-      return res.sendStatus(403);
     }
+
+    return res.sendStatus(403);
   }
 
-  // ✅ Step 2: Handle incoming WhatsApp messages (POST)
   try {
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0];
@@ -1708,15 +1749,13 @@ exports.whatsappAI = functions.https.onRequest(async (req, res) => {
     const messages = value?.messages;
 
     if (messages && messages[0]) {
-
       const userMessage = messages[0].text?.body || "";
       const from = messages[0].from;
 
       console.log("Incoming message:", userMessage, "from:", from);
 
-      let reply = "Sorry, I couldn’t generate a reply.";
+      let reply = "Sorry, I couldn't generate a reply.";
 
-      // 🔥 Step 3: Call Gemini API
       try {
         const geminiResponse = await axios.post(
           `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
@@ -1724,68 +1763,74 @@ exports.whatsappAI = functions.https.onRequest(async (req, res) => {
           { headers: { "Content-Type": "application/json" } }
         );
 
-        reply =
-          geminiResponse.data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-          reply;
-
+        reply = geminiResponse.data?.candidates?.[0]?.content?.parts?.[0]?.text || reply;
       } catch (err) {
         console.error("Gemini error:", err.response?.data || err.message);
         reply = "AI service is not available right now.";
       }
 
-      // ✅ Keyword-based Web App Link Logic
       let finalReply = reply;
       const lowerMsg = userMessage.toLowerCase();
 
       if (
-        lowerMsg.includes("login") ||
-        lowerMsg.includes("open") ||
-        lowerMsg.includes("app") ||
-        lowerMsg.includes("seller") ||
-        lowerMsg.includes("register")
+        webAppUrl
+        && (
+          lowerMsg.includes("login")
+          || lowerMsg.includes("open")
+          || lowerMsg.includes("app")
+          || lowerMsg.includes("seller")
+          || lowerMsg.includes("register")
+        )
       ) {
-        finalReply += "\n\n🌐 Open Medilink App:\n" + webAppUrl;
+        finalReply += `\n\nOpen Medilink App:\n${webAppUrl}`;
       }
 
-     // 📲 Step 4: Send Professional Button Message
+      const messagePayload = webAppUrl
+        ? {
+            messaging_product: "whatsapp",
+            to: from,
+            type: "interactive",
+            interactive: {
+              type: "cta_url",
+              body: {
+                text: finalReply
+              },
+              action: {
+                name: "cta_url",
+                parameters: {
+                  display_text: "Open Medilink App",
+                  url: webAppUrl
+                }
+              }
+            }
+          }
+        : {
+            messaging_product: "whatsapp",
+            to: from,
+            type: "text",
+            text: {
+              body: finalReply
+            }
+          };
 
-await axios.post(
-  `https://graph.facebook.com/v20.0/${whatsappPhoneNumberId}/messages`,
-  {
-    messaging_product: "whatsapp",
-    to: from,
-    type: "interactive",
-    interactive: {
-      type: "cta_url",
-      body: {
-        text: finalReply
-      },
-      action: {
-        name: "cta_url",
-        parameters: {
-            display_text: "Open Medilink App",
-            url: webAppUrl
+      await axios.post(
+        `https://graph.facebook.com/v20.0/${whatsappPhoneNumberId}/messages`,
+        messagePayload,
+        {
+          headers: {
+            Authorization: `Bearer ${whatsappToken}`,
+            "Content-Type": "application/json"
+          }
         }
-      }
-    }
-  },
-  {
-    headers: {
-      Authorization: `Bearer ${whatsappToken}`,
-      "Content-Type": "application/json"
-    }
-  }
-);
+      );
     }
 
     return res.sendStatus(200);
-
   } catch (error) {
     console.error(error.response ? error.response.data : error.message);
     return res.sendStatus(500);
   }
 });
-
 
 // Modularized seed function
 const { seedCategories } = require("./seedCategories");
@@ -2227,26 +2272,38 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
           return res.status(400).json({ error: "Missing case details." });
         }
 
+        const caseNature = classifyCaseNature(caseDetails);
         const context = retrieveLegalContext(caseDetails, 8);
         const judgments = await loadJudgmentLibrary();
         const relatedJudgments = buildRelatedJudgments(judgments, caseDetails, 5);
-        const authorityClusters = buildAuthorityClusters(relatedJudgments);
+        const filteredJudgments = relatedJudgments.filter((item) => {
+          const judgmentText = `${item.title || ""} ${item.citation || ""} ${item.summary || ""} ${(item.issueTags || []).join(" ")}`.toLowerCase();
+          if (caseNature === "civil") {
+            return !/fir|police|arrest|criminal law|cognizable|murder|theft/.test(judgmentText);
+          }
+          if (caseNature === "criminal") {
+            return !/rent|lease|tenant|landlord|specific performance|civil recovery/.test(judgmentText);
+          }
+          return true;
+        });
+        const authorityClusters = buildAuthorityClusters(filteredJudgments);
         const legacyLawNotice = getLegacyLawNotice(caseDetails);
         const contextText = context.map((item) => `${item.citation}\n${item.body}`).join("\n\n");
+        const fallbackBestCases = filteredJudgments.slice(0, 3).map((item) => ({
+          title: item.title,
+          citation: item.citation,
+          whyItMatters: item.ratioNote || item.summary,
+          status: item.treatmentStatus || "verify",
+          sourceUrl: item.sourceUrl || "",
+          court: item.court || "",
+          judgmentDate: item.judgmentDate || ""
+        }));
         const fallback = {
           caseSummary: "Initial legal research summary generated from Indian law references.",
           applicableSections: context.map((item) => item.citation),
-          caseLaws: context.filter((item) => item.type === "caseLaw").map((item) => item.title),
+          caseLaws: fallbackBestCases,
           judgmentSummary: "Use cited references to expand arguments and verify latest judicial position.",
-          bestCases: relatedJudgments.slice(0, 3).map((item) => ({
-            title: item.title,
-            citation: item.citation,
-            whyItMatters: item.ratioNote || item.summary,
-            status: item.treatmentStatus || "verify",
-            sourceUrl: item.sourceUrl || "",
-            court: item.court || "",
-            judgmentDate: item.judgmentDate || ""
-          })),
+          bestCases: fallbackBestCases,
           authorityClusters: authorityClusters.map((cluster) => ({
             issue: cluster.issue,
             authorities: cluster.authorities.map((item) => ({
@@ -2261,10 +2318,21 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
 
         const aiResponse = await callOpenAIJson({
           systemPrompt: LEGAL_SYSTEM_PROMPTS.lawyer,
-          userPrompt: `Case details:\n${caseDetails}\n\nRetrieved context:\n${contextText}\n\nLatest matching judgments:\n${relatedJudgments.map((item) => `- ${item.title} | ${item.citation} | ${item.ratioNote || item.summary}`).join("\n") || "No related judgments found."}`,
+          userPrompt: `You are a legal research assistant.\n\nSTRICT RULES:\n- Only include laws directly relevant to the user's issue.\n- Do not include unrelated laws.\n- Do not suggest FIR or police steps for civil disputes.\n- If the case is about Section 138 / cheque dishonour, only include the Negotiable Instruments Act, directly relevant procedural law if necessary, and matching case law.\n\nCase classification: ${caseNature}\n\nCase details:\n${caseDetails}\n\nRetrieved context:\n${contextText}\n\nLatest matching judgments:\n${filteredJudgments.map((item) => `- ${item.title} | ${item.citation} | ${item.ratioNote || item.summary}`).join("\n") || "No related judgments found."}`,
           schemaHint: "{\"caseSummary\":\"\",\"applicableSections\":[],\"caseLaws\":[],\"judgmentSummary\":\"\",\"bestCases\":[],\"authorityClusters\":[{\"issue\":\"\",\"authorities\":[]}]}",
           fallback
         });
+
+        const normalizedBestCases = Array.isArray(aiResponse.bestCases) && aiResponse.bestCases.length
+          ? aiResponse.bestCases
+          : fallback.bestCases;
+        const normalizedCaseLaws = normalizedBestCases.length
+          ? normalizedBestCases
+          : (Array.isArray(aiResponse.caseLaws) && aiResponse.caseLaws.length ? aiResponse.caseLaws : []);
+        const normalizedJudgmentSummary = String(aiResponse.judgmentSummary || "").trim()
+          || (filteredJudgments.length
+            ? "Matched judgments are shown below. Verify the exact proposition and latest treatment before reliance."
+            : fallback.judgmentSummary);
 
         await consumeLegalQuota(quota.ref, quota.subscription);
         await writeLegalAudit(ownerId, action, caseDetails, "ok", {
@@ -2274,18 +2342,19 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
         return res.status(200).json({
           caseSummary: String(aiResponse.caseSummary || fallback.caseSummary),
           applicableSections: Array.isArray(aiResponse.applicableSections) ? aiResponse.applicableSections : fallback.applicableSections,
-          caseLaws: Array.isArray(aiResponse.caseLaws) ? aiResponse.caseLaws : fallback.caseLaws,
-          judgmentSummary: String(aiResponse.judgmentSummary || fallback.judgmentSummary),
-          bestCases: Array.isArray(aiResponse.bestCases) ? aiResponse.bestCases : fallback.bestCases,
+          caseLaws: normalizedCaseLaws,
+          judgmentSummary: normalizedJudgmentSummary,
+          bestCases: normalizedBestCases,
           authorityClusters: Array.isArray(aiResponse.authorityClusters) ? aiResponse.authorityClusters : fallback.authorityClusters,
-          relatedJudgments,
+          relatedJudgments: filteredJudgments,
+          caseNature,
           legalVersionNotice: legacyLawNotice,
           citations: context.map((item) => ({ citation: item.citation, title: item.title })),
           retrievedAuthorities: mapAuthorities(context),
           traceability: buildTraceability({
             facts: caseDetails,
             authorities: [
-              ...relatedJudgments.slice(0, 5).map((item) => ({
+              ...filteredJudgments.slice(0, 5).map((item) => ({
                 title: item.title,
                 citation: item.citation,
                 whyItMatters: item.ratioNote || item.summary,
@@ -2308,6 +2377,83 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
             ],
             notes: ["Verify the cited proposition from the full text before filing."]
           })
+        });
+      }
+
+      if (action === "copilot_chat") {
+        const message = String(body.message || "").trim();
+        const facts = String(body.facts || "").trim();
+        const draft = String(body.draft || "").trim();
+        const tab = String(body.tab || "").trim();
+        const workspaceOutput = body.output && typeof body.output === "object" ? body.output : {};
+        const history = Array.isArray(body.history) ? body.history : [];
+
+        if (!message) {
+          return res.status(400).json({ error: "Missing copilot message." });
+        }
+
+        const workspaceAuthorities = [
+          ...(Array.isArray(workspaceOutput.applicableSections) ? workspaceOutput.applicableSections : []),
+          ...(Array.isArray(workspaceOutput.citations) ? workspaceOutput.citations.map((item) => `${item?.title || ""} ${item?.citation || ""}`.trim()) : []),
+          ...(Array.isArray(workspaceOutput.bestCases) ? workspaceOutput.bestCases.map((item) => `${item?.title || ""} ${item?.citation || ""}`.trim()) : []),
+          ...(Array.isArray(workspaceOutput.retrievedAuthorities) ? workspaceOutput.retrievedAuthorities.map((item) => `${item?.title || ""} ${item?.citation || ""}`.trim()) : [])
+        ].filter(Boolean).slice(0, 20);
+
+        const context = retrieveLegalContext(`${facts}\n${message}\n${draft}`, 8);
+        const contextText = context.map((item) => `${item.citation}\n${item.body}`).join("\n\n");
+        const recentHistory = history
+          .filter((item) => item && typeof item === "object")
+          .slice(-8)
+          .map((item) => `${item.role === "assistant" ? "Assistant" : "User"}: ${String(item.text || "").trim()}`)
+          .filter(Boolean)
+          .join("\n");
+        const replyText = await callOpenAIText({
+          systemPrompt: `${LEGAL_SYSTEM_PROMPTS.lawyer}
+
+You are an open-ended legal copilot inside a lawyer workspace.
+- Answer the user's actual question directly.
+- Do not begin with capability blurbs, menus, or phrases like "I can help with...".
+- Behave like a natural AI assistant first, and a legal workspace copilot second.
+- Use recent chat, workspace facts, draft text, visible authorities, and retrieved context only when useful.
+- If the user asks for a draft, provide the draft in the reply itself with usable headings and text.
+- If the user asks for explanation, explain plainly first, then relevance, then practical use.
+- If the user asks what is unnecessary, separate relevant and irrelevant material clearly.
+- If the user's question is broad, answer broadly instead of narrowing it.
+- Match the user's language and tone unless they ask otherwise.`,
+          userPrompt: `Recent chat:
+${recentHistory || "No prior chat."}
+
+Current tab:
+${tab || "general"}
+
+Workspace facts:
+${facts || "No facts currently available."}
+
+Current draft:
+${draft || "No draft currently available."}
+
+Visible authorities:
+${workspaceAuthorities.join("\n") || "No visible authorities."}
+
+Retrieved legal context:
+${contextText || "No additional context."}
+
+Latest user message:
+${message}`
+        });
+
+        await consumeLegalQuota(quota.ref, quota.subscription);
+        await writeLegalAudit(ownerId, action, message, "ok", {
+          tab,
+          citations: context.map((item) => item.citation)
+        });
+
+        return res.status(200).json({
+          reply: replyText,
+          draft: "",
+          suggestions: [],
+          citations: context.map((item) => ({ citation: item.citation, title: item.title })),
+          retrievedAuthorities: mapAuthorities(context)
         });
       }
 
@@ -2560,12 +2706,14 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
         const snapshot = await admin.firestore()
           .collection("legalDrafts")
           .where("ownerId", "==", ownerId)
-          .orderBy("updatedAt", "desc")
           .limit(100)
           .get();
 
         return res.status(200).json({
-          drafts: snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          drafts: sortRecordsByTimestamp(
+            snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+            "updatedAt"
+          )
         });
       }
 
@@ -2795,12 +2943,14 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
         const snapshot = await admin.firestore()
           .collection("legalMemory")
           .where("ownerId", "==", ownerId)
-          .orderBy("createdAt", "desc")
           .limit(100)
           .get();
 
         return res.status(200).json({
-          memories: snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          memories: sortRecordsByTimestamp(
+            snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+            "createdAt"
+          )
         });
       }
 
@@ -3518,12 +3668,14 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
         const snapshot = await admin.firestore()
           .collection("legalAuditLogs")
           .where("ownerId", "==", ownerId)
-          .orderBy("createdAt", "desc")
           .limit(100)
           .get();
 
         return res.status(200).json({
-          logs: snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          logs: sortRecordsByTimestamp(
+            snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+            "createdAt"
+          )
         });
       }
 
@@ -3531,13 +3683,20 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
     } catch (error) {
       functions.logger.error("Legal assistant error:", error.response?.data || error.message);
       const body = req.body || {};
+      const action = String(body.action || "unknown").trim();
       await writeLegalAudit(
         String(body.ownerId || "anonymous").trim(),
-        String(body.action || "unknown").trim(),
+        action,
         String(body.problem || body.caseDetails || body.facts || body.documentText || body.query || ""),
         "error",
         { message: error.message }
       );
+      if (action === "copilot_chat") {
+        return res.status(500).json({
+          error: error.message || "Copilot chat failed.",
+          details: error.response?.data || null
+        });
+      }
       return res.status(500).json({ error: "Could not process legal assistant request." });
     }
   });
@@ -3691,3 +3850,4 @@ exports.legalMatterConsistency = functions.https.onRequest(createLegalMatterCons
 exports.legalEvidenceCoverage = functions.https.onRequest(createLegalEvidenceCoverageHandler());
 exports.legalDraftValidation = functions.https.onRequest(createLegalDraftValidationHandler());
 exports.legalFilingPack = functions.https.onRequest(createLegalFilingPackHandler(admin));
+exports.legalCopilot = functions.https.onRequest(createCopilotApp());
