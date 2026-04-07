@@ -1,13 +1,18 @@
 const functions = require("firebase-functions");
 const axios = require("axios");
 const admin = require("firebase-admin");
-const { FieldValue } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 const cors = require("cors")({ origin: true });
 const { createCopilotApp } = require("./copilot/app");
 const { LEGAL_SYSTEM_PROMPTS } = require("./legalCorpus");
 const { LEGAL_JUDGMENTS_SEED } = require("./legalJudgmentsSeed");
 const { parseJudgmentSourcePayload } = require("./legalJudgmentParsers");
+const {
+  analyzeJudgmentRecord,
+  buildJudgmentEnrichmentRequest,
+  mergeJudgmentAiEnrichment,
+  computeFreshnessProfile
+} = require("./legalJudgmentPipeline");
 const {
   buildCanonicalCaseId,
   syncCaseRelationsForJudgments
@@ -98,7 +103,7 @@ async function writeLegalAudit(ownerId, action, requestSummary, status, meta = {
       requestSummary: String(requestSummary || "").slice(0, 1200),
       status: String(status || "ok"),
       meta,
-      createdAt: FieldValue.serverTimestamp()
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
   } catch (error) {
     functions.logger.warn("Audit log write failed:", error.message);
@@ -269,6 +274,9 @@ function sortJudgmentsByRelevance(items = [], query = "") {
     }))
     .sort((a, b) => {
       if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
+      if (Number(b.courtPriority || 0) !== Number(a.courtPriority || 0)) {
+        return Number(b.courtPriority || 0) - Number(a.courtPriority || 0);
+      }
       return String(b.judgmentDate || "").localeCompare(String(a.judgmentDate || ""));
     });
 }
@@ -308,12 +316,17 @@ function filterJudgments(items = [], {
 
     const haystack = normalizeSearchText([
       item.title,
+      item.caseNumber,
+      Array.isArray(item.partyNames) ? item.partyNames.join(" ") : "",
       item.citation,
+      item.neutralCitation,
       item.court,
       item.bench,
       item.summary,
       item.relevanceNote,
-      Array.isArray(item.issueTags) ? item.issueTags.join(" ") : ""
+      Array.isArray(item.issueTags) ? item.issueTags.join(" ") : "",
+      Array.isArray(item.statutoryReferences) ? item.statutoryReferences.join(" ") : "",
+      Array.isArray(item.propositionNotes) ? item.propositionNotes.join(" ") : ""
     ].join(" ")).join(" ");
 
     return normalizedQuery
@@ -328,23 +341,31 @@ function scoreJudgmentMatch(item, sourceText) {
   if (!sourceTokens.length) return 0;
 
   const titleTokens = normalizeSearchText(item.title);
+  const caseNumberTokens = normalizeSearchText(item.caseNumber);
+  const partyTokens = normalizeSearchText(Array.isArray(item.partyNames) ? item.partyNames.join(" ") : "");
   const tagTokens = normalizeSearchText(Array.isArray(item.issueTags) ? item.issueTags.join(" ") : "");
+  const statuteTokens = normalizeSearchText(Array.isArray(item.statutoryReferences) ? item.statutoryReferences.join(" ") : "");
+  const propositionTokens = normalizeSearchText(Array.isArray(item.propositionNotes) ? item.propositionNotes.join(" ") : "");
   const summaryTokens = normalizeSearchText([
     item.summary,
     item.relevanceNote,
     item.ratioNote,
     Array.isArray(item.practicalUse) ? item.practicalUse.join(" ") : ""
   ].join(" "));
-  const citationTokens = normalizeSearchText([item.citation, item.court, item.bench].join(" "));
+  const citationTokens = normalizeSearchText([item.citation, item.neutralCitation, item.court, item.bench].join(" "));
 
   return sourceTokens.reduce((score, token) => {
     let nextScore = score;
     if (titleTokens.includes(token)) nextScore += 4;
+    if (caseNumberTokens.includes(token)) nextScore += 3;
+    if (partyTokens.includes(token)) nextScore += 3;
     if (tagTokens.includes(token)) nextScore += 3;
+    if (statuteTokens.includes(token)) nextScore += 3;
+    if (propositionTokens.includes(token)) nextScore += 4;
     if (summaryTokens.includes(token)) nextScore += 2;
     if (citationTokens.includes(token)) nextScore += 1;
     return nextScore;
-  }, 0);
+  }, 0) + Number(item.courtPriority || 0) + (String(item.authorityStrength || "").toLowerCase() === "high" ? 2 : String(item.authorityStrength || "").toLowerCase() === "medium" ? 1 : 0);
 }
 
 function computeAuthorityStrength(item = {}) {
@@ -371,6 +392,15 @@ function computeAuthorityStrength(item = {}) {
   return "Review";
 }
 
+function computeCourtPriority(item = {}) {
+  const courtText = String(item.court || "").toLowerCase();
+  if (courtText.includes("supreme court")) return 5;
+  if (courtText.includes("high court")) return 4;
+  if (courtText.includes("tribunal")) return 3;
+  if (courtText.includes("commission")) return 2;
+  return 1;
+}
+
 function buildTreatmentSummary(item = {}) {
   const parts = [];
   if (item.treatmentStatus) parts.push(`Status: ${item.treatmentStatus}`);
@@ -381,12 +411,69 @@ function buildTreatmentSummary(item = {}) {
   return parts.join(" | ");
 }
 
+function computeTreatmentAlert(item = {}) {
+  const status = String(item.treatmentStatus || "").toLowerCase();
+  const overruledCount = Array.isArray(item.overruledBy) ? item.overruledBy.length : 0;
+  const distinguishedCount = Array.isArray(item.distinguishedBy) ? item.distinguishedBy.length : 0;
+  const followedCount = Array.isArray(item.followedBy) ? item.followedBy.length : 0;
+
+  if (overruledCount || status.includes("overruled") || status.includes("limited")) {
+    return {
+      treatmentAlertLabel: "High risk",
+      treatmentAlertTone: "highRisk",
+      treatmentAlertNote: "Later treatment suggests overruled or limited authority."
+    };
+  }
+
+  if (distinguishedCount || status.includes("distinguished")) {
+    return {
+      treatmentAlertLabel: "Caution",
+      treatmentAlertTone: "caution",
+      treatmentAlertNote: "Authority has distinguishing treatment and should be used carefully."
+    };
+  }
+
+  if (status.includes("verify")) {
+    return {
+      treatmentAlertLabel: "Verify",
+      treatmentAlertTone: "review",
+      treatmentAlertNote: "Treatment should be checked before relying on this authority."
+    };
+  }
+
+  if (followedCount || status.includes("followed") || status.includes("landmark") || status.includes("good law") || status.includes("relied")) {
+    return {
+      treatmentAlertLabel: "Followed",
+      treatmentAlertTone: "positive",
+      treatmentAlertNote: "Treatment appears supportive, but filing use should still be verified."
+    };
+  }
+
+  return {
+    treatmentAlertLabel: "Check",
+    treatmentAlertTone: "neutral",
+    treatmentAlertNote: "Treatment history should be checked before filing."
+  };
+}
+
 function enrichJudgment(item = {}) {
+  const freshness = computeFreshnessProfile(item.judgmentDate);
+  const treatment = computeTreatmentAlert(item);
   return {
     ...item,
     canonicalCaseId: String(item.canonicalCaseId || buildCanonicalCaseId(item)).trim(),
+    courtPriority: Number(item.courtPriority || 0) || computeCourtPriority(item),
     authorityStrength: computeAuthorityStrength(item),
-    treatmentSummary: buildTreatmentSummary(item)
+    treatmentSummary: buildTreatmentSummary(item),
+    treatmentAlertLabel: item.treatmentAlertLabel || treatment.treatmentAlertLabel,
+    treatmentAlertTone: item.treatmentAlertTone || treatment.treatmentAlertTone,
+    treatmentAlertNote: item.treatmentAlertNote || treatment.treatmentAlertNote,
+    freshnessLabel: item.freshnessLabel || freshness.freshnessLabel,
+    freshnessDays: typeof item.freshnessDays === "number" ? item.freshnessDays : freshness.freshnessDays,
+    stalenessReason: item.stalenessReason || freshness.stalenessReason,
+    propositionNotes: Array.isArray(item.propositionNotes)
+      ? item.propositionNotes
+      : (Array.isArray(item.holdingPoints) ? item.holdingPoints.slice(0, 3) : [])
   };
 }
 
@@ -485,13 +572,13 @@ function getJudgmentImportTemplates() {
       id: "court_standard_v1",
       label: "Court Standard V1",
       requiredFields: ["title", "citation", "court", "judgmentDate", "summary"],
-      optionalFields: ["bench", "ratioNote", "relevanceNote", "treatmentStatus", "cautionFlag", "issueTags", "holdingPoints", "keyParagraphs", "practicalUse"]
+      optionalFields: ["caseNumber", "partyNames", "bench", "ratioNote", "relevanceNote", "treatmentStatus", "cautionFlag", "issueTags", "matterTags", "holdingPoints", "keyParagraphs", "practicalUse", "parallelCitations", "citationAliases", "statutoryReferences", "reliefType", "outcome"]
     },
     {
       id: "scc_digest_v1",
       label: "Digest Style V1",
       requiredFields: ["title", "citation", "court", "summary", "issueTags"],
-      optionalFields: ["bench", "judgmentDate", "ratioNote", "relevanceNote", "treatmentStatus", "holdingPoints", "keyParagraphs", "practicalUse"]
+      optionalFields: ["caseNumber", "partyNames", "bench", "judgmentDate", "ratioNote", "relevanceNote", "treatmentStatus", "matterTags", "holdingPoints", "keyParagraphs", "practicalUse", "statutoryReferences", "reliefType", "outcome"]
     }
   ];
 }
@@ -516,86 +603,148 @@ async function createJudgmentSyncRun({ ownerId, sourceId, mode = "manual" }) {
   return { id: ref.id, ...payload };
 }
 
-async function importJudgmentRecords({ ownerId, sourceId, records = [] }) {
-  const batch = admin.firestore().batch();
-  const normalizedRecords = [];
-  let storedCount = 0;
+async function maybeEnrichJudgmentWithAI({ record, source = {}, enableAiEnrichment = false }) {
+  if (!enableAiEnrichment || !getOpenAIKey()) {
+    return { record, aiEnriched: false };
+  }
 
-  records.forEach((record, index) => {
-    const normalizedRecord = enrichJudgment(record);
-    const title = String(normalizedRecord.title || "").trim();
-    if (!title) return;
-
-    const citation = String(normalizedRecord.citation || "").trim();
-    const docId = String(normalizedRecord.id || `${sourceId || "import"}-${citation || title}-${index}`)
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 120);
-
-    const ref = admin.firestore().collection("legalJudgments").doc(docId);
-    batch.set(ref, {
-      title,
-      citation,
-      canonicalCaseId: String(normalizedRecord.canonicalCaseId || "").trim(),
-      court: String(normalizedRecord.court || "").trim(),
-      bench: String(normalizedRecord.bench || "").trim(),
-      judgmentDate: String(normalizedRecord.judgmentDate || "").trim(),
-      summary: String(normalizedRecord.summary || "").trim(),
-      ratioNote: String(normalizedRecord.ratioNote || "").trim(),
-      relevanceNote: String(normalizedRecord.relevanceNote || "").trim(),
-      treatmentStatus: String(normalizedRecord.treatmentStatus || "").trim(),
-      cautionFlag: String(normalizedRecord.cautionFlag || "").trim(),
-      issueTags: Array.isArray(normalizedRecord.issueTags) ? normalizedRecord.issueTags.map((item) => String(item).trim()).filter(Boolean) : [],
-      holdingPoints: Array.isArray(normalizedRecord.holdingPoints) ? normalizedRecord.holdingPoints.map((item) => String(item).trim()).filter(Boolean) : [],
-      keyParagraphs: Array.isArray(normalizedRecord.keyParagraphs) ? normalizedRecord.keyParagraphs.map((item) => String(item).trim()).filter(Boolean) : [],
-      citedBy: Array.isArray(normalizedRecord.citedBy) ? normalizedRecord.citedBy.map((item) => String(item).trim()).filter(Boolean) : [],
-      followedBy: Array.isArray(normalizedRecord.followedBy) ? normalizedRecord.followedBy.map((item) => String(item).trim()).filter(Boolean) : [],
-      distinguishedBy: Array.isArray(normalizedRecord.distinguishedBy) ? normalizedRecord.distinguishedBy.map((item) => String(item).trim()).filter(Boolean) : [],
-      overruledBy: Array.isArray(normalizedRecord.overruledBy) ? normalizedRecord.overruledBy.map((item) => String(item).trim()).filter(Boolean) : [],
-      practicalUse: Array.isArray(normalizedRecord.practicalUse) ? normalizedRecord.practicalUse.map((item) => String(item).trim()).filter(Boolean) : [],
-      sourceUrl: String(normalizedRecord.sourceUrl || "").trim(),
-      importedBy: ownerId,
-      sourceId: String(sourceId || "manual-import").trim(),
-      sourceType: "live",
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    normalizedRecords.push(normalizedRecord);
-    storedCount += 1;
+  const request = buildJudgmentEnrichmentRequest(record, source);
+  const aiPayload = await callOpenAIJson({
+    systemPrompt: request.systemPrompt,
+    userPrompt: request.userPrompt,
+    schemaHint: request.schemaHint,
+    fallback: request.fallback
   });
 
-  if (storedCount) {
+  return {
+    record: mergeJudgmentAiEnrichment(record, aiPayload),
+    aiEnriched: true
+  };
+}
+
+function incrementCodeMap(target = {}, codes = []) {
+  codes.forEach((code) => {
+    const key = String(code || "").trim();
+    if (!key) return;
+    target[key] = Number(target[key] || 0) + 1;
+  });
+}
+
+function buildJudgmentImportReportSummary(report = {}) {
+  const parts = [
+    `Processed ${Number(report.processedCount || 0)}`,
+    `Stored ${Number(report.storedCount || 0)}`,
+    `Review ${Number(report.requiresReviewCount || 0)}`
+  ];
+  if (Number(report.aiEnrichedCount || 0) > 0) {
+    parts.push(`AI enriched ${Number(report.aiEnrichedCount || 0)}`);
+  }
+  if (Number(report.warningCount || 0) > 0) {
+    parts.push(`Warnings ${Number(report.warningCount || 0)}`);
+  }
+  if (Number(report.errorCount || 0) > 0) {
+    parts.push(`Errors ${Number(report.errorCount || 0)}`);
+  }
+  return parts.join(" | ");
+}
+
+async function importJudgmentRecords({
+  ownerId,
+  sourceId,
+  source = {},
+  records = [],
+  enableAiEnrichment = true,
+  maxAiEnrichmentRecords = 5
+}) {
+  const batch = admin.firestore().batch();
+  const normalizedRecords = [];
+  const importReport = {
+    sourceId: String(sourceId || source.id || "manual-import").trim() || "manual-import",
+    processedCount: records.length,
+    storedCount: 0,
+    skippedCount: 0,
+    warningCount: 0,
+    errorCount: 0,
+    requiresReviewCount: 0,
+    aiEnrichedCount: 0,
+    warningCodes: {},
+    errorCodes: {},
+    preview: []
+  };
+
+  let aiBudget = enableAiEnrichment ? Math.min(Math.max(Number(maxAiEnrichmentRecords || 0), 0), 10) : 0;
+
+  for (const [index, rawRecord] of records.entries()) {
+    const recordSourceId = String(rawRecord?.sourceId || sourceId || source.id || "manual-import").trim() || "manual-import";
+    const initialAnalysis = analyzeJudgmentRecord(rawRecord, source, {
+      sourceId: recordSourceId,
+      sourceType: source.endpoint ? "live" : "import",
+      importedBy: ownerId,
+      importIndex: index,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    let workingRecord = initialAnalysis.normalizedRecord;
+    let aiEnriched = false;
+
+    if (aiBudget > 0 && workingRecord.title) {
+      const aiResult = await maybeEnrichJudgmentWithAI({
+        record: workingRecord,
+        source,
+        enableAiEnrichment
+      });
+      workingRecord = aiResult.record;
+      aiEnriched = aiResult.aiEnriched;
+      if (aiEnriched) {
+        aiBudget -= 1;
+      }
+    }
+
+    const analyzed = analyzeJudgmentRecord(workingRecord, source, {
+      sourceId: recordSourceId,
+      sourceType: source.endpoint ? "live" : "import",
+      importedBy: ownerId,
+      importIndex: index,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      aiEnriched
+    });
+
+    importReport.warningCount += analyzed.validation.warnings.length;
+    importReport.errorCount += analyzed.validation.errors.length;
+    importReport.requiresReviewCount += analyzed.validation.requiresReview ? 1 : 0;
+    importReport.aiEnrichedCount += aiEnriched ? 1 : 0;
+    incrementCodeMap(importReport.warningCodes, analyzed.validation.warnings);
+    incrementCodeMap(importReport.errorCodes, analyzed.validation.errors);
+    if (importReport.preview.length < 8) {
+      importReport.preview.push(analyzed.preview);
+    }
+
+    if (!analyzed.normalizedRecord.title) {
+      importReport.skippedCount += 1;
+      continue;
+    }
+
+    const ref = admin.firestore().collection("legalJudgments").doc(analyzed.docId);
+    batch.set(ref, analyzed.storageDoc, { merge: true });
+    normalizedRecords.push({ id: analyzed.docId, ...analyzed.storageDoc });
+    importReport.storedCount += 1;
+  }
+
+  if (importReport.storedCount) {
     await batch.commit();
     await syncCaseRelationsForJudgments(admin, normalizedRecords);
     await precomputeCaseValidity(admin, normalizedRecords.slice(0, 20));
   }
 
-  return storedCount;
+  return importReport;
 }
 
 function normalizeImportedJudgmentRecord(record = {}, source = {}) {
-  return {
-    id: String(record.id || "").trim(),
-    title: String(record.title || record.caseTitle || "").trim(),
-    citation: String(record.citation || record.neutralCitation || "").trim(),
-    court: String(record.court || source.court || "").trim(),
-    bench: String(record.bench || "").trim(),
-    judgmentDate: String(record.judgmentDate || record.date || "").trim(),
-    summary: String(record.summary || record.headnote || "").trim(),
-    ratioNote: String(record.ratioNote || record.holding || "").trim(),
-    relevanceNote: String(record.relevanceNote || "").trim(),
-    treatmentStatus: String(record.treatmentStatus || "verify").trim(),
-    cautionFlag: String(record.cautionFlag || "").trim(),
-    issueTags: Array.isArray(record.issueTags) ? record.issueTags : [],
-    holdingPoints: Array.isArray(record.holdingPoints) ? record.holdingPoints : [],
-    keyParagraphs: Array.isArray(record.keyParagraphs) ? record.keyParagraphs : [],
-    citedBy: Array.isArray(record.citedBy) ? record.citedBy : [],
-    followedBy: Array.isArray(record.followedBy) ? record.followedBy : [],
-    distinguishedBy: Array.isArray(record.distinguishedBy) ? record.distinguishedBy : [],
-    overruledBy: Array.isArray(record.overruledBy) ? record.overruledBy : [],
-    practicalUse: Array.isArray(record.practicalUse) ? record.practicalUse : [],
-    sourceUrl: String(record.sourceUrl || "").trim()
-  };
+  return analyzeJudgmentRecord(record, source, {
+    sourceId: record.sourceId || source.id || "manual-preview",
+    sourceType: source.endpoint ? "live" : "import",
+    importIndex: 0
+  }).normalizedRecord;
 }
 
 async function tryFetchLiveJudgments({ sources = [], query = "", limit = 10 }) {
@@ -624,10 +773,23 @@ async function tryFetchLiveJudgments({ sources = [], query = "", limit = 10 }) {
         : parsedRecords;
 
       records.forEach((record) => {
-    const normalized = enrichJudgment(normalizeImportedJudgmentRecord(record, source));
-    if (normalized.title) {
-      fetched.push(normalized);
-    }
+        const analyzed = analyzeJudgmentRecord(record, source, {
+          sourceId: source.id || source.name || "source",
+          sourceType: "live-preview",
+          importIndex: fetched.length
+        });
+        const normalized = enrichJudgment({
+          ...analyzed.normalizedRecord,
+          sourceId: source.id || source.name || "source",
+          confidenceScore: analyzed.validation.confidenceScore,
+          validationWarnings: analyzed.validation.warnings,
+          validationErrors: analyzed.validation.errors,
+          requiresReview: analyzed.validation.requiresReview,
+          reviewPriority: analyzed.validation.reviewPriority
+        });
+        if (normalized.title) {
+          fetched.push(normalized);
+        }
       });
 
       if (records.length) {
@@ -654,6 +816,9 @@ function buildRelatedJudgments(judgments, sourceText, limit = 5) {
     .filter((item) => item.matchScore > 0)
     .sort((a, b) => {
       if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+      if (Number(b.courtPriority || 0) !== Number(a.courtPriority || 0)) {
+        return Number(b.courtPriority || 0) - Number(a.courtPriority || 0);
+      }
       return String(b.judgmentDate || "").localeCompare(String(a.judgmentDate || ""));
     })
     .slice(0, limit);
@@ -675,6 +840,9 @@ function buildAuthorityClusters(relatedJudgments = []) {
         citation: item.citation,
         status: item.treatmentStatus || "verify",
         whyItMatters: item.ratioNote || item.summary,
+        proposition: Array.isArray(item.propositionNotes) ? item.propositionNotes[0] || "" : "",
+        statutoryReferences: Array.isArray(item.statutoryReferences) ? item.statutoryReferences.slice(0, 3) : [],
+        pinpointRef: Array.isArray(item.keyParagraphs) ? item.keyParagraphs[0] || "" : "",
         sourceUrl: item.sourceUrl || ""
       });
       map.set(key, current);
@@ -2311,6 +2479,9 @@ exports.legalAssistant = functions.https.onRequest((req, res) => {
               citation: item.citation,
               status: item.status,
               whyItMatters: item.whyItMatters,
+              proposition: item.proposition || "",
+              statutoryReferences: Array.isArray(item.statutoryReferences) ? item.statutoryReferences : [],
+              pinpointRef: item.pinpointRef || "",
               sourceUrl: item.sourceUrl || ""
             }))
           }))
@@ -2852,6 +3023,9 @@ ${message}`
       if (action === "case_upsert") {
         const caseItem = body.caseItem || {};
         const id = String(caseItem.id || "").trim() || admin.firestore().collection("legalCases").doc().id;
+        const workspaceState = caseItem.workspaceState && typeof caseItem.workspaceState === "object"
+          ? caseItem.workspaceState
+          : null;
         await admin.firestore().collection("legalCases").doc(id).set({
           ownerId,
           clientId: String(caseItem.clientId || "").trim(),
@@ -2859,6 +3033,7 @@ ${message}`
           stage: String(caseItem.stage || "Draft").trim(),
           notes: String(caseItem.notes || "").trim(),
           nextHearingDate: String(caseItem.nextHearingDate || "").trim(),
+          workspaceState,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
@@ -3285,7 +3460,8 @@ ${message}`
           liveCount,
           demoCount,
           latestDate,
-          plannedCollections: ["legalJudgments", "legalJudgmentSyncRuns", "legalJudgmentSources"],
+          plannedCollections: ["legalJudgments", "legalJudgmentSyncRuns", "legalJudgmentSources", "canonicalCases", "caseRelations", "caseValidityCache"],
+          pipelineStages: ["source", "parse", "normalize", "ai_enrich", "validate", "store", "retrieve"],
           templates: getJudgmentImportTemplates(),
           sources: [
             "Supreme Court public feed",
@@ -3324,18 +3500,91 @@ ${message}`
         });
       }
 
+      if (action === "judgment_pipeline_preview") {
+        const sourceId = String(body.sourceId || "manual-preview").trim() || "manual-preview";
+        const records = Array.isArray(body.records) ? body.records : (body.record ? [body.record] : []);
+        if (!records.length) {
+          return res.status(400).json({ error: "Missing preview record payload." });
+        }
+        const sources = await loadJudgmentSources();
+        const source = sources.find((item) => item.id === sourceId) || {
+          id: sourceId,
+          name: String(body.sourceName || sourceId).trim() || sourceId,
+          court: String(body.sourceCourt || "").trim(),
+          endpoint: String(body.sourceUrl || "").trim()
+        };
+        const enableAiEnrichment = body.useAiEnrichment !== false;
+        const previews = [];
+
+        for (const [index, rawRecord] of records.slice(0, 5).entries()) {
+          const base = analyzeJudgmentRecord(rawRecord, source, {
+            sourceId,
+            sourceType: source.endpoint ? "live-preview" : "import-preview",
+            importIndex: index
+          });
+          let workingRecord = base.normalizedRecord;
+          let aiEnriched = false;
+          if (enableAiEnrichment && index < 2) {
+            const aiResult = await maybeEnrichJudgmentWithAI({
+              record: workingRecord,
+              source,
+              enableAiEnrichment
+            });
+            workingRecord = aiResult.record;
+            aiEnriched = aiResult.aiEnriched;
+          }
+          const analyzed = analyzeJudgmentRecord(workingRecord, source, {
+            sourceId,
+            sourceType: source.endpoint ? "live-preview" : "import-preview",
+            importIndex: index,
+            aiEnriched
+          });
+          previews.push({
+            ...analyzed.preview,
+            aiEnriched,
+            docId: analyzed.docId,
+            canonicalCaseId: analyzed.normalizedRecord.canonicalCaseId,
+            keywordIndex: analyzed.normalizedRecord.keywordIndex,
+            citationVariants: analyzed.normalizedRecord.citationVariants
+          });
+        }
+
+        await writeLegalAudit(ownerId, action, sourceId, "ok", {
+          previewCount: previews.length,
+          aiRequested: enableAiEnrichment
+        });
+
+        return res.status(200).json({
+          ok: true,
+          source,
+          previewCount: previews.length,
+          previews
+        });
+      }
+
       if (action === "judgment_import_payload") {
         const sourceId = String(body.sourceId || "manual-import").trim() || "manual-import";
         const records = Array.isArray(body.records) ? body.records : [];
+        const enableAiEnrichment = body.useAiEnrichment !== false;
+        const maxAiEnrichmentRecords = Math.min(Math.max(Number(body.maxAiEnrichmentRecords || 5), 0), 10);
 
         if (!records.length) {
           return res.status(400).json({ error: "Missing judgment records." });
         }
 
-        const storedCount = await importJudgmentRecords({
+        const sources = await loadJudgmentSources();
+        const source = sources.find((item) => item.id === sourceId) || {
+          id: sourceId,
+          name: sourceId
+        };
+
+        const importReport = await importJudgmentRecords({
           ownerId,
           sourceId,
-          records
+          source,
+          records,
+          enableAiEnrichment,
+          maxAiEnrichmentRecords
         });
 
         const run = await createJudgmentSyncRun({
@@ -3347,19 +3596,23 @@ ${message}`
         await admin.firestore().collection("legalJudgmentSyncRuns").doc(run.id).set({
           status: "completed",
           fetchedCount: records.length,
-          storedCount,
-          notes: "Connector-ready import payload processed.",
+          storedCount: importReport.storedCount,
+          notes: buildJudgmentImportReportSummary(importReport),
+          importReport,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
         await writeLegalAudit(ownerId, action, sourceId, "ok", {
-          storedCount,
-          fetchedCount: records.length
+          storedCount: importReport.storedCount,
+          fetchedCount: records.length,
+          requiresReviewCount: importReport.requiresReviewCount,
+          aiEnrichedCount: importReport.aiEnrichedCount
         });
 
         return res.status(200).json({
           ok: true,
-          storedCount,
+          storedCount: importReport.storedCount,
+          importReport,
           runId: run.id
         });
       }
@@ -3378,12 +3631,15 @@ ${message}`
           query,
           limit
         });
+        let importReport = null;
 
         if (liveResult.judgments.length) {
-          const storedCount = await importJudgmentRecords({
+          importReport = await importJudgmentRecords({
             ownerId,
             sourceId,
-            records: liveResult.judgments
+            records: liveResult.judgments,
+            enableAiEnrichment: body.useAiEnrichment !== false,
+            maxAiEnrichmentRecords: Math.min(Math.max(Number(body.maxAiEnrichmentRecords || 4), 0), 8)
           });
 
           const run = await createJudgmentSyncRun({
@@ -3395,8 +3651,9 @@ ${message}`
           await admin.firestore().collection("legalJudgmentSyncRuns").doc(run.id).set({
             status: "completed",
             fetchedCount: liveResult.judgments.length,
-            storedCount,
-            notes: `Live retrieval completed from ${liveResult.fetchedSources.join(", ") || sourceId}.`,
+            storedCount: importReport.storedCount,
+            notes: `${liveResult.fetchedSources.join(", ") || sourceId} | ${buildJudgmentImportReportSummary(importReport)}`,
+            importReport,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
           }, { merge: true });
         }
@@ -3404,14 +3661,17 @@ ${message}`
         await writeLegalAudit(ownerId, action, `${sourceId} | ${query}`, "ok", {
           fetchedCount: liveResult.judgments.length,
           fetchedSources: liveResult.fetchedSources,
-          liveEnabled: liveResult.liveEnabled
+          liveEnabled: liveResult.liveEnabled,
+          requiresReviewCount: importReport?.requiresReviewCount || 0,
+          aiEnrichedCount: importReport?.aiEnrichedCount || 0
         });
 
         return res.status(200).json({
           judgments: liveResult.judgments,
           fetchedSources: liveResult.fetchedSources,
           liveEnabled: liveResult.liveEnabled,
-          sourceMode: liveResult.judgments.length ? "live" : "cache"
+          sourceMode: liveResult.judgments.length ? "live" : "cache",
+          importReport
         });
       }
 
@@ -3691,6 +3951,42 @@ ${message}`
         "error",
         { message: error.message }
       );
+      if (action === "lawyer_research") {
+        const caseDetails = String(body.caseDetails || "").trim();
+        const context = retrieveLegalContext(caseDetails, 8);
+        const legacyLawNotice = getLegacyLawNotice(caseDetails);
+        const judgments = await loadJudgmentLibrary();
+        const relatedJudgments = buildRelatedJudgments(judgments, caseDetails, 5);
+        const bestCases = relatedJudgments.slice(0, 3).map((item) => ({
+          title: item.title,
+          citation: item.citation,
+          whyItMatters: item.ratioNote || item.summary,
+          status: item.treatmentStatus || "verify",
+          sourceUrl: item.sourceUrl || "",
+          court: item.court || "",
+          judgmentDate: item.judgmentDate || ""
+        }));
+        return res.status(200).json({
+          caseSummary: caseDetails
+            ? "Local research fallback ready. Review the issue list, matched judgments, and retrieved authorities below."
+            : "Local research fallback ready.",
+          applicableSections: context.map((item) => item.citation),
+          caseLaws: bestCases,
+          judgmentSummary: relatedJudgments.length
+            ? "Matched judgments are shown from local fallback mode. Verify treatment and proposition before filing."
+            : "No matching judgments were found in local fallback mode yet.",
+          bestCases,
+          authorityClusters: buildAuthorityClusters(relatedJudgments).map((cluster) => ({
+            issue: cluster.issue,
+            authorities: cluster.authorities
+          })),
+          relatedJudgments,
+          legalVersionNotice: legacyLawNotice,
+          citations: context.map((item) => ({ citation: item.citation, title: item.title })),
+          retrievedAuthorities: mapAuthorities(context),
+          fallback: true
+        });
+      }
       if (action === "copilot_chat") {
         return res.status(500).json({
           error: error.message || "Copilot chat failed.",

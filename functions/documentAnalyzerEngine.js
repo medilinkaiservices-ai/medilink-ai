@@ -11,6 +11,7 @@ function uniqueList(items = []) {
 
 function inferDocumentType(text = "") {
   const lowered = String(text || "").toLowerCase();
+  if (/complaint under section|criminal complaint|consumer complaint|private complaint/i.test(lowered)) return "complaint";
   if (/legal notice|hereby called upon|demand/i.test(lowered)) return "notice";
   if (/agreement|between|party of the first part|party of the second part/i.test(lowered)) return "agreement";
   if (/affidavit|deponent|solemnly affirm/i.test(lowered)) return "affidavit";

@@ -20,7 +20,7 @@
     "source": "functions"
   },
   "hosting": {
-    "public": "webapp/build",
+    "public": "medilink-mobile/dist",
     "ignore": [
       "firebase.json",
       "**/.*",

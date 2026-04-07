@@ -14,6 +14,26 @@ function buildCheck(key, label, passed, note, severity = "info") {
   return { key, label, passed: Boolean(passed), note, severity };
 }
 
+function detectLooseSection(text = "", expressions = []) {
+  const normalized = String(text || "").toLowerCase();
+  return expressions.some((expression) => {
+    if (expression instanceof RegExp) {
+      return expression.test(normalized);
+    }
+    return normalized.includes(String(expression || "").toLowerCase());
+  });
+}
+
+function inferDraftTypeFromText(draftText = "") {
+  const text = String(draftText || "").toLowerCase();
+  if (!text.trim()) return "";
+  if (/legal notice|subject:|noticee|called upon|under instructions/i.test(text)) return "notice";
+  if (/verification|deponent|solemnly affirm/i.test(text)) return "affidavit";
+  if (/between|party of the first part|party of the second part|governing law/i.test(text)) return "agreement";
+  if (/in the court|in the hon'?ble|before the hon'?ble|petitioner|respondent|plaintiff|defendant/i.test(text)) return "petition";
+  return "";
+}
+
 function getRequiredChecks({ draftType, courtType, draftText }) {
   const text = String(draftText || "");
   const lowered = text.toLowerCase();
@@ -36,16 +56,22 @@ function getRequiredChecks({ draftType, courtType, draftText }) {
   }
 
   if (draftType === "notice") {
+    const hasSubject = detectLooseSection(lowered, ["subject:", "subject ", "re:", "reg:"]);
+    const hasFacts = detectLooseSection(lowered, [/facts/, /under instructions/, /background/, /cause of action/]) || lowered.length > 200;
+    const hasSignature = detectLooseSection(lowered, [/signature block/, /counsel for/, /signed by/, /advocate for/, /notice issuer/, /yours faithfully/, /yours sincerely/]);
+    const hasLegalBasis = detectLooseSection(lowered, [/legal basis/, /section 138/, /negotiable instruments act/, /consumer protection act/, /article 226/, /specific relief/]);
+    const hasDemand = detectLooseSection(lowered, [/demand/, /called upon/, /comply within/, /failing which/, /take notice/, /payment within/]);
+
     checks.push(
       buildCheck("notice_heading", "Notice heading present", findSection(text, /legal notice|notice/i), "Legal notice should clearly identify itself as a notice.", "medium"),
       buildCheck("parties", "Party block present", findSection(text, /from:|to:|noticee|opposite party|claimant|complainant/i), "Notice should clearly identify sender and recipient roles.", "high"),
-      buildCheck("facts", "Structured facts present", findSection(text, /facts|under instructions|i hereby state as follows/i), "Facts section should be clearly structured.", "high"),
-      buildCheck("signature", "Signature block present", findSection(text, /signature block|counsel for|signed by|advocate for|notice issuer/i), "Signature / counsel block should be present.", "medium")
+      buildCheck("facts", "Structured facts present", hasFacts, "Facts section should be clearly structured.", "high"),
+      buildCheck("signature", "Signature block present", hasSignature, "Signature / counsel block should be present.", "medium")
     );
     checks.push(
-      buildCheck("subject", "Subject line present", findSection(text, /subject:/i), "Legal notices should carry a clear subject line.", "high"),
-      buildCheck("legal_basis", "Legal basis present", findSection(text, /legal basis|section 138|negotiable instruments act|consumer protection act|article 226|specific relief/i), "Notice should identify the core legal basis.", "high"),
-      buildCheck("demand", "Demand / compliance clause present", findSection(text, /demand|called upon|comply within|failing which/i), "Notice should include a clear compliance demand and consequence clause.", "high")
+      buildCheck("subject", "Subject line present", hasSubject, "Legal notices should carry a clear subject line.", "high"),
+      buildCheck("legal_basis", "Legal basis present", hasLegalBasis, "Notice should identify the core legal basis.", "high"),
+      buildCheck("demand", "Demand / compliance clause present", hasDemand, "Notice should include a clear compliance demand and consequence clause.", "high")
     );
   }
 
@@ -93,7 +119,9 @@ function getRequiredChecks({ draftType, courtType, draftText }) {
 
 function analyzeDraftValidation(input = {}) {
   const draftText = String(input.draftText || "").trim();
-  const draftType = String(input.draftType || "petition").trim().toLowerCase() || "petition";
+  const requestedDraftType = String(input.draftType || "").trim().toLowerCase();
+  const inferredDraftType = inferDraftTypeFromText(draftText);
+  const draftType = inferredDraftType || requestedDraftType || "petition";
   const courtType = normalizeCourtType(input.courtType || input.court || "");
 
   if (!draftText) {
@@ -134,10 +162,12 @@ function analyzeDraftValidation(input = {}) {
     criticalIssues,
     suggestions,
     courtType,
-    draftType
+    draftType,
+    inferredDraftType: inferredDraftType || draftType
   };
 }
 
 module.exports = {
-  analyzeDraftValidation
+  analyzeDraftValidation,
+  inferDraftTypeFromText
 };

@@ -64,6 +64,25 @@ function detectQueryProfile(query = "") {
   return "general";
 }
 
+function classifyCaseNature(query = "") {
+  const lowered = String(query || "").toLowerCase();
+
+  if (/section 138|cheque|dishonou?r|bank memo|statutory notice|negotiable instruments/.test(lowered)) {
+    return "criminal";
+  }
+  if (/fir|arrest|bail|police complaint|cognizable|criminal|assault|theft|murder|forgery|threat|harassment/.test(lowered)) {
+    return "criminal";
+  }
+  if (/money recovery|recovery suit|specific performance|injunction|declaration|breach of contract|rent|lease|tenant|landlord|civil/.test(lowered)) {
+    return "civil";
+  }
+  if (/agreement|contract|dues|payment|loan|borrowed money|salary|employment dues|property dispute/.test(lowered)) {
+    return "civil";
+  }
+
+  return "general";
+}
+
 function getProfileWeight(profile, entry = {}) {
   const entryText = `${entry.title || ""} ${entry.citation || ""} ${(entry.keywords || []).join(" ")}`.toLowerCase();
 
@@ -97,6 +116,32 @@ function getProfileWeight(profile, entry = {}) {
   return 0;
 }
 
+function isProfileRelevant(profile, entry = {}) {
+  const entryText = `${entry.title || ""} ${entry.citation || ""} ${entry.body || ""} ${(entry.keywords || []).join(" ")}`.toLowerCase();
+  if (profile === "cheque_dishonour") {
+    if (/article 14|article 21|constitution|fundamental rights|maneka gandhi|d\.k\. basu|lalita kumari|consumer protection|domestic violence|theft|cheating|fir|police/.test(entryText)) return false;
+    if (/section 138|negotiable instruments|cheque bounce|dishonou?r|statutory notice/.test(entryText)) return true;
+    if (/evidence|electronic/.test(entryText)) return true;
+  }
+  if (profile === "civil_recovery") {
+    if (/agreement|contract|specific relief|money|dues|payment|recovery/.test(entryText)) return true;
+    if (/fir|police|domestic violence|section 138/.test(entryText)) return false;
+  }
+  if (profile === "rental_dispute") {
+    if (/rent|lease|tenant|landlord|specific relief|property|civil/.test(entryText)) return true;
+    if (/fir|police|section 138|domestic violence/.test(entryText)) return false;
+  }
+  if (profile === "fraud") {
+    if (/cheating|fraud|fir|police|cognizable|investigation/.test(entryText)) return true;
+    if (/section 138|cheque bounce|rent|lease|tenant|landlord|domestic violence/.test(entryText)) return false;
+  }
+  if (profile === "contract") {
+    if (/agreement|contract|specific relief|consumer protection|civil/.test(entryText)) return true;
+    if (/fir|police|theft|murder|section 138|domestic violence/.test(entryText)) return false;
+  }
+  return true;
+}
+
 function retrieveLegalContext(query, limit = 6) {
   const tokens = normalizeSearchText(query);
   if (!tokens.length) {
@@ -112,15 +157,34 @@ function retrieveLegalContext(query, limit = 6) {
       );
       const tokenScore = tokens.reduce((acc, token) => (haystack.includes(token) ? acc + 1 : acc), 0);
       const phraseScore = String(query || "").toLowerCase().includes("section 138") && /section 138/i.test(entry.citation || "") ? 4 : 0;
-      const score = tokenScore + phraseScore + getProfileWeight(profile, entry);
+      const profileWeight = getProfileWeight(profile, entry);
+      const score = tokenScore + phraseScore + profileWeight;
       return { entry, score };
     })
-    .filter((item) => item.score > 0)
+    .filter((item) => item.score > 0 && isProfileRelevant(profile, item.entry))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((item) => item.entry);
 
-  return ranked.length ? ranked : LEGAL_CORPUS.slice(0, limit);
+  if (ranked.length) {
+    return ranked;
+  }
+
+  const caseNature = classifyCaseNature(query);
+  const narrowedFallback = LEGAL_CORPUS
+    .filter((entry) => {
+      const entryText = `${entry.title || ""} ${entry.citation || ""} ${entry.body || ""} ${(entry.keywords || []).join(" ")}`.toLowerCase();
+      if (profile !== "general") return isProfileRelevant(profile, entry);
+      if (/cheque|check|dishonou?r|bank memo|negotiable instruments|section 138/.test(String(query || "").toLowerCase())) {
+        return !/article 14|article 21|constitution|fundamental rights|maneka gandhi|d\.k\. basu|lalita kumari|consumer protection|domestic violence|theft|cheating|fir|police/.test(entryText);
+      }
+      if (caseNature === "civil") return !/fir|police|cognizable|arrest|criminal law|theft|murder/.test(entryText);
+      if (caseNature === "criminal") return !/rent|lease|tenant|landlord|specific relief|civil recovery/.test(entryText);
+      return true;
+    })
+    .slice(0, limit);
+
+  return narrowedFallback.length ? narrowedFallback : LEGAL_CORPUS.slice(0, limit);
 }
 
 function getLegacyReferenceMatches(query) {
@@ -143,6 +207,7 @@ function getLegacyLawNotice(query) {
 
 module.exports = {
   LEGACY_REFERENCE_RULES,
+  classifyCaseNature,
   normalizeSearchText,
   retrieveLegalContext,
   getLegacyReferenceMatches,

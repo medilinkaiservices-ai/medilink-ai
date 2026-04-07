@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const REVIEW_STATUSES = ["ai_draft", "reviewed", "approved"];
+const REVIEW_STATUSES = ["ai_draft", "needs_revision", "reviewed", "approved"];
 const APPROVAL_ROLES = ["reviewer", "senior_lawyer", "partner"];
 
 function normalizeReviewStatus(value) {
@@ -46,6 +46,14 @@ function buildTraceSnapshot(payload = {}) {
   };
 }
 
+function normalizeReviewFindings(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 async function writeReviewSnapshot(admin, reviewRecord = {}, payload = {}) {
   const snapshotRef = admin.firestore().collection("legalReviewSnapshots").doc();
   await snapshotRef.set({
@@ -55,10 +63,12 @@ async function writeReviewSnapshot(admin, reviewRecord = {}, payload = {}) {
     entityType: reviewRecord.entityType || "",
     entityKey: reviewRecord.entityKey || "",
     entityLabel: reviewRecord.entityLabel || "",
+    draftVersionLabel: reviewRecord.draftVersionLabel || "",
     status: reviewRecord.status || "approved",
     reviewerName: reviewRecord.reviewerName || "",
     approvalRole: reviewRecord.approvalRole || "",
     reviewNotes: reviewRecord.reviewNotes || "",
+    reviewFindings: Array.isArray(reviewRecord.reviewFindings) ? reviewRecord.reviewFindings : [],
     outputSummary: reviewRecord.outputSummary || "",
     traceabilityNote: reviewRecord.traceabilityNote || "",
     traceSnapshot: buildTraceSnapshot(payload),
@@ -106,10 +116,13 @@ async function upsertLegalReview(admin, payload = {}) {
     entityId: String(payload.entityId || "").trim(),
     entityKey,
     entityLabel: String(payload.entityLabel || entityType).trim(),
+    matterTitle: String(payload.matterTitle || "").trim(),
+    draftVersionLabel: String(payload.draftVersionLabel || "").trim(),
     status,
     approvalRole,
     reviewerName: String(payload.reviewerName || "").trim(),
     reviewNotes: String(payload.reviewNotes || "").trim(),
+    reviewFindings: normalizeReviewFindings(payload.reviewFindings),
     outputSummary: buildReviewSummary(payload),
     traceabilityNote: String(payload.traceabilityNote || "").trim(),
     updatedAt: now,

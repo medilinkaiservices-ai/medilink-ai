@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Medilink AI",
+    "slug": "medilink-ai-law",
+    "version": "1.0.0",
+    "scheme": "medilinkai",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "android": {
+      "package": "com.medilink.ai",
+      "versionCode": 1
+    },
+    "ios": {
+      "bundleIdentifier": "com.medilink.ai",
+      "buildNumber": "1"
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./android/app/src/main/res/drawable-mdpi/splashscreen_logo.png"
+    },
+    "extra": {
+      "appVariant": "production",
+      "eas": {
+        "projectId": "1e1bcdf3-68df-4c99-9391-92abb86a41fc"
+      }
+    }
+  }
+}

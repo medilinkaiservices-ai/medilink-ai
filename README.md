@@ -1,13 +1,13 @@
 # Medilink-AI
 
-This repo has two main parts:
+This repo is centered on one frontend app plus Firebase functions:
 
-- `webapp`: React frontend
+- `medilink-mobile`: Expo app for Android and hosted web
 - `functions`: Firebase Cloud Functions
 
 ## Quick start
 
-Run the frontend from the project root:
+Run the app from the project root:
 
 ```bash
 npm run dev
@@ -19,13 +19,13 @@ Install all dependencies from the repo root:
 npm run bootstrap
 ```
 
-Build the frontend:
+Build the hosted web app:
 
 ```bash
 npm run build
 ```
 
-Run frontend tests:
+Run root tests:
 
 ```bash
 npm run test
@@ -57,18 +57,16 @@ For a mobile-first setup with Codex and cloud execution:
 If you need to reinstall packages:
 
 ```bash
-npm run install:web
+npm run install:app
 npm run install:functions
 ```
 
 ## Project structure
 
 ```text
-webapp/src/
-  components/   Shared UI components
-  pages/        Route-level screens
-  affiliate/    Affiliate feature pages
-  hooks/        Reusable hooks
+medilink-mobile/
+  App.js        Shared Android + web app shell
+  src/          Supporting app modules and assets
 
 functions/
   index.js      Firebase functions entry
@@ -77,9 +75,9 @@ functions/
 
 ## Law Assistant module
 
-New enterprise legal module route:
+Hosted web app route:
 
-- `http://localhost:3000/law-assistant`
+- `http://localhost:19006`
 
 Inside module:
 

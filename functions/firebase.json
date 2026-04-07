@@ -13,14 +13,14 @@
     "memory": "512MB",
     "region": "us-central1",
     "params": {
-      "gemini_key": "AIzaSyCl7dqFMm8c0qGVdkm50hifhtvPGSh5PC",
+      "gemini_key": "AIzaSyC0BzHd0bmbNbbaKdYMH9XsNv_qZLHHEyk",
       "whatsapp_phone_id": "YOUR_PHONE_ID",
       "whatsapp_token": "YOUR_WHATSAPP_TOKEN"
     },
     "source": "functions"
   },
   "hosting": {
-    "public": "webapp/build",
+    "public": "../medilink-mobile/dist",
     "ignore": [
       "firebase.json",
       "**/.*",

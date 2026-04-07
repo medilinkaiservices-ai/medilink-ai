@@ -1,0 +1,95 @@
+{
+  "documentTypeSignals": {
+    "ia": [
+      "order xxxix",
+      "order 39",
+      "temporary injunction",
+      "interim injunction",
+      "interlocutory application",
+      "i.a."
+    ],
+    "affidavit": [
+      "affidavit",
+      "deponent",
+      "i solemnly affirm",
+      "solemnly affirm",
+      "verified at"
+    ],
+    "plaint": [
+      "plaint",
+      "plaintiff above named",
+      "cause of action",
+      "schedule of property",
+      "grounds for relief",
+      "suit for permanent injunction"
+    ],
+    "petition": [
+      "petition",
+      "petitioner",
+      "respondent",
+      "interlocutory application"
+    ],
+    "complaint": [
+      "complaint",
+      "complainant",
+      "accused",
+      "complaint under section"
+    ],
+    "notice": [
+      "legal notice",
+      "notice",
+      "subject",
+      "reservation of rights",
+      "from:",
+      "to:"
+    ]
+  },
+  "profiles": {
+    "notice": {
+      "required": [
+        "sender_details",
+        "recipient_details",
+        "subject",
+        "factual_background",
+        "legal_response",
+        "reservation_of_rights"
+      ],
+      "critical": [
+        "sender_details",
+        "recipient_details",
+        "subject",
+        "factual_background"
+      ]
+    },
+    "complaint": {
+      "required": [
+        "parties",
+        "facts",
+        "cause_of_action",
+        "jurisdiction",
+        "grounds",
+        "prayer"
+      ],
+      "critical": [
+        "parties",
+        "facts",
+        "cause_of_action",
+        "jurisdiction",
+        "prayer"
+      ]
+    },
+    "affidavit": {
+      "required": [
+        "title",
+        "deponent_details",
+        "statements_on_oath",
+        "verification"
+      ],
+      "critical": [
+        "title",
+        "deponent_details",
+        "verification"
+      ]
+    }
+  }
+}

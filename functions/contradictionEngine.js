@@ -128,8 +128,7 @@ function analyzeMatterContradictions(input = {}) {
     { label: "Facts", lines: normalizeLines(facts) },
     { label: "Chronology", lines: normalizeLines(chronologyText) },
     { label: "Hearing notes", lines: normalizeLines(hearingNotes) },
-    { label: "Draft", lines: normalizeLines(draftText) },
-    { label: "Document analysis", lines: normalizeLines(documentSummary) }
+    { label: "Draft", lines: normalizeLines(draftText) }
   ].filter((item) => item.lines.length);
 
   const contradictions = [

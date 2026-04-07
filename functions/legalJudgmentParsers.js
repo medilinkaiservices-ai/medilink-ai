@@ -27,6 +27,19 @@ function buildAbsoluteUrl(baseUrl, href) {
   }
 }
 
+function toUniqueStrings(values = [], limit = 12) {
+  const seen = new Set();
+  const result = [];
+  values.forEach((value) => {
+    const normalized = normalizeWhitespace(value);
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) return;
+    seen.add(key);
+    result.push(normalized);
+  });
+  return result.slice(0, limit);
+}
+
 function extractDate(value) {
   const text = normalizeWhitespace(value);
   const patterns = [
@@ -42,6 +55,82 @@ function extractDate(value) {
   }
 
   return "";
+}
+
+function extractCaseNumber(text = "") {
+  const source = normalizeWhitespace(text);
+  const patterns = [
+    /\b(?:W\.?P\.?|Writ Petition|Crl\.?A\.?|Criminal Appeal|Civil Appeal|C\.?A\.?|LPA|SLP(?:\(C\))?|O\.?S\.?|Suit|RFA|RSA|CRP|CMP|MFA|M\.?A\.?|Appeal|Petition)\s*(?:No\.?|Nos\.?)?\s*[\w./()-]+\s*(?:of\s*\d{4})?/i,
+    /\bCase\s*(?:No\.?|Nos\.?)\s*[\w./()-]+\s*(?:of\s*\d{4})?/i,
+    /\b[A-Z]{1,6}\s*\d+\/\d{4}\b/
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match) return normalizeWhitespace(match[0]);
+  }
+  return "";
+}
+
+function extractBench(text = "") {
+  const source = normalizeWhitespace(text);
+  const patterns = [
+    /\b(?:Coram|Before|Bench)\s*[:\-]\s*([^|;]+)/i,
+    /\b(?:Single Judge|Division Bench|Full Bench|Constitution Bench|Two-Judge Bench|Three-Judge Bench|Seven-Judge Bench|Nine-Judge Bench|Thirteen-Judge Bench)\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match) return normalizeWhitespace(match[1] || match[0]);
+  }
+  return "";
+}
+
+function extractNeutralCitation(text = "") {
+  const source = normalizeWhitespace(text);
+  const patterns = [
+    /\b\d{4}\s+SCC\s+OnLine\s+[A-Za-z]+\s+\d+\b/i,
+    /\b\d{4}\s+SCC\s+Online\s+[A-Za-z]+\s+\d+\b/i,
+    /\b\d{4}\s+[A-Z]{2,6}\s+\d+\b/,
+    /\b\d{4}[:\-][A-Z]{2,10}[:\-]\d+\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match) return normalizeWhitespace(match[0]);
+  }
+  return "";
+}
+
+function inferPartyNames(title = "") {
+  const source = normalizeWhitespace(title);
+  const match = source.match(/^(.+?)\s+\b(?:v(?:s\.?|ersus)?)\b\s+(.+)$/i);
+  if (!match) return [];
+  return toUniqueStrings([match[1], match[2]], 4);
+}
+
+function cleanTitleSegment(value = "") {
+  return normalizeWhitespace(
+    String(value || "")
+      .replace(/\buploaded on\b.*$/i, " ")
+      .replace(/\bdated\b.*$/i, " ")
+      .replace(/\bdownload\b/i, " ")
+      .replace(/\bview\b/i, " ")
+  );
+}
+
+function extractTitleFromText(text = "") {
+  const source = cleanTitleSegment(text);
+  const lines = source
+    .split(/\s+\|\s+|\s+-\s+|;/)
+    .map((item) => normalizeWhitespace(item))
+    .filter(Boolean);
+
+  const preferred = lines.find((item) => /\b(?:v(?:s\.?|ersus)?)\b/i.test(item) && item.length > 8);
+  if (preferred) return preferred;
+
+  const fallback = lines
+    .filter((item) => item.length > 12 && !extractDate(item) && !extractCaseNumber(item))
+    .sort((a, b) => b.length - a.length)[0];
+  return fallback || source;
 }
 
 function deriveIssueTags(text) {
@@ -89,29 +178,50 @@ function deriveIssueTags(text) {
     .slice(0, 5);
 }
 
-function buildSummary(title, court) {
+function buildSummary(title, court, caseNumber = "") {
   const text = normalizeWhitespace(title);
-  return `Official ${court || "court"} judgment brief parsed from public source for ${text}. Verify the full text and latest treatment before reliance.`;
+  const caseMarker = caseNumber ? ` (${caseNumber})` : "";
+  return `Official ${court || "court"} judgment brief parsed from public source for ${text}${caseMarker}. Verify the full text and latest treatment before reliance.`;
+}
+
+function buildRowSummary(title, court, cellTexts = []) {
+  const narrative = cellTexts
+    .filter((item) => item.length > 10)
+    .slice(0, 3)
+    .join(" | ");
+  return narrative || buildSummary(title, court);
 }
 
 function normalizeRecord(record = {}, source = {}) {
-  const title = normalizeWhitespace(record.title || record.caseTitle || record.caseName);
+  const title = normalizeWhitespace(record.title || record.caseTitle || record.caseName || extractTitleFromText(record.rawText || ""));
   if (!title) return null;
 
   const court = normalizeWhitespace(record.court || source.court || source.name);
-  const summary = normalizeWhitespace(record.summary || record.headnote || buildSummary(title, court));
+  const caseNumber = normalizeWhitespace(record.caseNumber || extractCaseNumber([record.rawText, title, record.summary].join(" ")));
+  const neutralCitation = normalizeWhitespace(record.neutralCitation || extractNeutralCitation([record.citation, record.rawText, record.summary].join(" ")));
+  const citation = normalizeWhitespace(record.citation || neutralCitation || source.name || court);
+  const summary = normalizeWhitespace(record.summary || record.headnote || buildSummary(title, court, caseNumber));
   const ratioNote = normalizeWhitespace(record.ratioNote || `Use ${title} as a working authority brief and verify the full ratio from the official judgment text.`);
   const issueTags = Array.isArray(record.issueTags) && record.issueTags.length
     ? record.issueTags.map((item) => normalizeWhitespace(item)).filter(Boolean)
-    : deriveIssueTags(`${title} ${summary}`);
+    : deriveIssueTags(`${title} ${summary} ${caseNumber}`);
+  const partyNames = Array.isArray(record.partyNames) && record.partyNames.length
+    ? toUniqueStrings(record.partyNames)
+    : inferPartyNames(title);
+  const bench = normalizeWhitespace(record.bench || extractBench([record.rawText, record.summary].join(" ")));
+  const parallelCitations = toUniqueStrings(Array.isArray(record.parallelCitations) ? record.parallelCitations : [neutralCitation].filter(Boolean), 6);
 
   return {
     id: normalizeWhitespace(record.id),
     title,
-    citation: normalizeWhitespace(record.citation || record.neutralCitation || source.name || court),
+    caseNumber,
+    partyNames,
+    citation,
+    neutralCitation,
+    parallelCitations,
     court,
-    bench: normalizeWhitespace(record.bench),
-    judgmentDate: normalizeWhitespace(record.judgmentDate || record.date || extractDate(title) || extractDate(summary)),
+    bench,
+    judgmentDate: normalizeWhitespace(record.judgmentDate || record.date || extractDate(record.rawText || "") || extractDate(title) || extractDate(summary)),
     summary,
     ratioNote,
     relevanceNote: normalizeWhitespace(record.relevanceNote || `Useful for issue spotting and authority shortlisting in ${court || "court"} matters.`),
@@ -142,20 +252,20 @@ function parseSupremeCourtHtml(html, source = {}) {
     const href = match[1];
     const text = stripHtml(match[2]);
     if (!text || text.length < 18) continue;
-    if (!/uploaded on|\d{1,2}-[A-Za-z]{3}-\d{4}|\d{1,2}-\d{1,2}-\d{4}/i.test(text)) continue;
+    if (!/uploaded on|\d{1,2}-[A-Za-z]{3}-\d{4}|\d{1,2}-\d{1,2}-\d{4}|\b(?:v(?:s\.?|ersus)?)\b/i.test(text)) continue;
 
-    const parts = text.split(/\s+-\s+/).map((item) => normalizeWhitespace(item)).filter(Boolean);
-    const title = parts[0] || text;
-    if (seen.has(title.toLowerCase())) continue;
+    const title = extractTitleFromText(text);
+    if (!title || seen.has(title.toLowerCase())) continue;
     seen.add(title.toLowerCase());
-
-    const datePart = parts.find((item) => extractDate(item)) || "";
-    const citationParts = parts.slice(1).filter((item) => item !== datePart && !/uploaded on/i.test(item));
 
     const normalized = normalizeRecord({
       title,
-      citation: citationParts.join(" | ") || "Supreme Court official feed",
-      judgmentDate: extractDate(datePart || text),
+      citation: extractNeutralCitation(text) || "Supreme Court official feed",
+      caseNumber: extractCaseNumber(text),
+      partyNames: inferPartyNames(title),
+      judgmentDate: extractDate(text),
+      bench: extractBench(text),
+      rawText: text,
       sourceUrl: href
     }, source);
 
@@ -182,22 +292,28 @@ function parseTableHtml(html, source = {}) {
 
     if (!cellTexts.length) continue;
 
-    const title = cellTexts
-      .filter((item) => item.length > 12 && !extractDate(item))
-      .sort((a, b) => b.length - a.length)[0];
-
+    const title = extractTitleFromText(cellTexts.join(" | "));
     if (!title) continue;
     if (seen.has(title.toLowerCase())) continue;
     seen.add(title.toLowerCase());
 
     const judgmentDate = cellTexts.map((item) => extractDate(item)).find(Boolean) || "";
-    const citation = cellTexts.find((item) => item !== title && item.length > 4) || `${source.court || source.name} official feed`;
+    const caseNumber = cellTexts.map((item) => extractCaseNumber(item)).find(Boolean) || "";
+    const citation = cellTexts.map((item) => extractNeutralCitation(item)).find(Boolean)
+      || cellTexts.find((item) => item !== title && item.length > 4)
+      || `${source.court || source.name} official feed`;
+    const bench = cellTexts.map((item) => extractBench(item)).find(Boolean) || "";
     const hrefMatch = row.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/i);
 
     const normalized = normalizeRecord({
       title,
+      caseNumber,
       citation,
+      neutralCitation: extractNeutralCitation(cellTexts.join(" | ")),
+      bench,
       judgmentDate,
+      summary: buildRowSummary(title, source.court || source.name, cellTexts),
+      rawText: cellTexts.join(" | "),
       sourceUrl: hrefMatch ? hrefMatch[1] : ""
     }, source);
 
@@ -218,14 +334,20 @@ function parseGenericHtml(html, source = {}) {
   while ((match = anchorRegex.exec(String(html || "")))) {
     const text = stripHtml(match[2]);
     if (!text || text.length < 16) continue;
-    if (!extractDate(text) && text.split(" ").length < 3) continue;
-    if (seen.has(text.toLowerCase())) continue;
-    seen.add(text.toLowerCase());
+    if (!extractDate(text) && text.split(" ").length < 3 && !/\b(?:v(?:s\.?|ersus)?)\b/i.test(text)) continue;
+    const title = extractTitleFromText(text);
+    if (!title) continue;
+    if (seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
 
     const normalized = normalizeRecord({
-      title: text,
-      citation: `${source.court || source.name} official feed`,
+      title,
+      caseNumber: extractCaseNumber(text),
+      citation: extractNeutralCitation(text) || `${source.court || source.name} official feed`,
+      neutralCitation: extractNeutralCitation(text),
       judgmentDate: extractDate(text),
+      bench: extractBench(text),
+      rawText: text,
       sourceUrl: match[1]
     }, source);
 
@@ -259,5 +381,10 @@ function parseJudgmentSourcePayload(data, source = {}) {
 module.exports = {
   parseJudgmentSourcePayload,
   parseSupremeCourtHtml,
-  parseTableHtml
+  parseTableHtml,
+  parseGenericHtml,
+  normalizeRecord,
+  extractCaseNumber,
+  extractNeutralCitation,
+  inferPartyNames
 };

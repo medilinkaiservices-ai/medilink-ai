@@ -1,0 +1,2336 @@
+{
+  "generatedAt": "2026-03-31T17:07:22.029Z",
+  "summaries": [
+    {
+      "name": "Cheque Bounce Recovery With Complete Materials",
+      "strengthLevel": "MODERATE",
+      "prediction": "N/A",
+      "readiness": "READY",
+      "consistency": "CONFLICTED",
+      "coverage": "PARTIAL COVERAGE",
+      "draftValidation": "COURT READY",
+      "filingDecision": "HOLD"
+    },
+    {
+      "name": "Employment Termination Dispute With Weak Records",
+      "strengthLevel": "MODERATE",
+      "prediction": "N/A",
+      "readiness": "PARTIAL",
+      "consistency": "CONFLICTED",
+      "coverage": "GAP HEAVY",
+      "draftValidation": "NEEDS WORK",
+      "filingDecision": "HOLD"
+    },
+    {
+      "name": "Property Possession Recovery With Date Conflicts",
+      "strengthLevel": "MODERATE",
+      "prediction": "N/A",
+      "readiness": "READY",
+      "consistency": "CONFLICTED",
+      "coverage": "GAP HEAVY",
+      "draftValidation": "NEEDS WORK",
+      "filingDecision": "HOLD"
+    }
+  ],
+  "reviewRecords": [
+    {
+      "id": "45e967acdbee1ef490f289b5d1905fc0dbbf8246",
+      "ownerId": "scenario-test-owner",
+      "matterId": "cheque-bounce-complete",
+      "entityType": "filing_pack",
+      "entityId": "",
+      "entityKey": "filing_pack:cheque-bounce-complete",
+      "entityLabel": "Final Filing Pack",
+      "matterTitle": "Cheque Bounce Recovery With Complete Materials",
+      "draftVersionLabel": "v1",
+      "status": "needs_revision",
+      "approvalRole": "",
+      "reviewerName": "Scenario Bot",
+      "reviewNotes": "The filing pack still has blocking issues that should be resolved before filing.",
+      "reviewFindings": [
+        "Date reference 2026-01-15 appears differently across Facts, Draft.",
+        "Date reference 2026-02-20 appears differently across Facts, Draft.",
+        "Date reference 2026-02-25 appears differently across Facts, Draft.",
+        "Date reference 2026-03-03 appears differently across Facts, Draft.",
+        "Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.",
+        "Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.",
+        "Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.",
+        "Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.",
+        "Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days.",
+        "Draft does not clearly reflect this fact: 2026-01-10: Borrower requested a short-term hand loan of INR 4,50,000 from the lender for business needs."
+      ],
+      "outputSummary": "The filing pack still has blocking issues that should be resolved before filing.",
+      "traceabilityNote": "",
+      "updatedAt": "2026-03-31T17:07:22.020Z",
+      "createdAt": "2026-03-31T17:07:22.020Z",
+      "reviewedAt": null,
+      "approvedAt": null
+    },
+    {
+      "id": "dbfd97f25600ed19d6c236dd783ea2dbd5591f4b",
+      "ownerId": "scenario-test-owner",
+      "matterId": "employment-termination-gaps",
+      "entityType": "filing_pack",
+      "entityId": "",
+      "entityKey": "filing_pack:employment-termination-gaps",
+      "entityLabel": "Final Filing Pack",
+      "matterTitle": "Employment Termination Dispute With Weak Records",
+      "draftVersionLabel": "v1",
+      "status": "needs_revision",
+      "approvalRole": "",
+      "reviewerName": "Scenario Bot",
+      "reviewNotes": "The filing pack still has blocking issues that should be resolved before filing.",
+      "reviewFindings": [
+        "Missing: Party block present",
+        "Missing: Structured facts present",
+        "Missing: Signature block present",
+        "Missing: Subject line present",
+        "Missing: Legal basis present",
+        "Notice should clearly identify sender and recipient roles.",
+        "Facts section should be clearly structured.",
+        "Legal notices should carry a clear subject line.",
+        "Notice should identify the core legal basis.",
+        "Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements."
+      ],
+      "outputSummary": "The filing pack still has blocking issues that should be resolved before filing.",
+      "traceabilityNote": "",
+      "updatedAt": "2026-03-31T17:07:22.024Z",
+      "createdAt": "2026-03-31T17:07:22.024Z",
+      "reviewedAt": null,
+      "approvedAt": null
+    },
+    {
+      "id": "937abae3828b15a87bfe97467542a755c5ca9347",
+      "ownerId": "scenario-test-owner",
+      "matterId": "property-recovery-conflict",
+      "entityType": "filing_pack",
+      "entityId": "",
+      "entityKey": "filing_pack:property-recovery-conflict",
+      "entityLabel": "Final Filing Pack",
+      "matterTitle": "Property Possession Recovery With Date Conflicts",
+      "draftVersionLabel": "v1",
+      "status": "needs_revision",
+      "approvalRole": "",
+      "reviewerName": "Scenario Bot",
+      "reviewNotes": "The filing pack still has blocking issues that should be resolved before filing.",
+      "reviewFindings": [
+        "Missing: Court heading present",
+        "Missing: Structured facts present",
+        "Missing: Signature block present",
+        "Missing: Legal grounds present",
+        "Missing: Cause of action present",
+        "Missing: Verification support present",
+        "Missing: Cause title / case title present",
+        "Draft should begin with a proper court heading.",
+        "Facts section should be clearly structured.",
+        "Petitions should contain a dedicated legal grounds section."
+      ],
+      "outputSummary": "The filing pack still has blocking issues that should be resolved before filing.",
+      "traceabilityNote": "",
+      "updatedAt": "2026-03-31T17:07:22.027Z",
+      "createdAt": "2026-03-31T17:07:22.027Z",
+      "reviewedAt": null,
+      "approvedAt": null
+    }
+  ],
+  "snapshots": [],
+  "results": [
+    {
+      "scenario": {
+        "id": "cheque-bounce-complete",
+        "title": "Cheque Bounce Recovery With Complete Materials",
+        "facts": "2026-01-10: Borrower requested a short-term hand loan of INR 4,50,000 from the lender for business needs.\n2026-01-15: Lender transferred INR 4,50,000 to borrower through bank transfer.\n2026-02-20: Borrower issued cheque no. 883271 drawn on SBI for INR 4,50,000 towards legally enforceable debt.\n2026-02-25: Cheque was presented and returned unpaid with bank memo stating insufficient funds.\n2026-03-03: Statutory legal notice was sent demanding payment within 15 days.\n2026-03-20: Borrower failed to pay despite notice.",
+        "issues": [
+          "Cheque dishonour under Section 138 NI Act",
+          "Legally enforceable debt proof",
+          "Statutory notice compliance"
+        ],
+        "draftType": "complaint",
+        "courtType": "trial_court",
+        "draftText": "COMPLAINT UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT\nFacts: The complainant advanced INR 4,50,000 on 2026-01-15. The accused issued cheque no. 883271 dated 2026-02-20.\nThe cheque was dishonoured on 2026-02-25 for insufficient funds.\nA statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.\nPrayer: Summon the accused and punish in accordance with law.",
+        "documents": [
+          {
+            "title": "Bank transfer proof",
+            "content": "UTR record showing transfer of INR 4,50,000 on 2026-01-15."
+          },
+          {
+            "title": "Cheque return memo",
+            "content": "Bank memo dated 2026-02-25 stating insufficient funds."
+          },
+          {
+            "title": "Statutory notice",
+            "content": "Notice dated 2026-03-03 demanding payment within 15 days."
+          }
+        ]
+      },
+      "documentAnalysis": {
+        "summary": "COMPLAINT UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT Facts: The complainant advanced INR 4,50,000 on 2026-01-15. The accused issued cheque no. 883271 dated 2026-02-20. The cheque was dishonoured on 2026-02-25 for insufficient funds. A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.",
+        "keyFacts": [
+          "COMPLAINT UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT",
+          "Facts: The complainant advanced INR 4,50,000 on 2026-01-15. The accused issued cheque no. 883271 dated 2026-02-20.",
+          "The cheque was dishonoured on 2026-02-25 for insufficient funds.",
+          "A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days."
+        ],
+        "importantClauses": [
+          "A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days."
+        ],
+        "importantClauseRefs": [
+          {
+            "clauseTitle": "Notice",
+            "clauseText": "A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.",
+            "location": "Paragraph 4"
+          }
+        ],
+        "risks": [],
+        "missingPoints": [
+          "Signature block"
+        ],
+        "suggestedArguments": [
+          "Use the dishonour event, cheque details, and bank memo facts to support statutory compliance and liability.",
+          "Highlight service, demand, and response timeline to strengthen cause of action."
+        ],
+        "documentType": "complaint",
+        "legalEntities": [
+          "COMPLAINT UNDER SECTION",
+          "OF THE NEGOTIABLE INSTRUMENTS ACT",
+          "Summon"
+        ],
+        "obligations": [
+          "A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days."
+        ],
+        "legalIssues": [
+          "Cheque dishonour compliance and statutory demand.",
+          "Service of notice and response timeline."
+        ],
+        "contradictionsWithCase": [
+          "Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.",
+          "Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.",
+          "Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.",
+          "Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.",
+          "Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days."
+        ]
+      },
+      "memoText": "DOCUMENT ANALYSIS MEMO\n\nSUMMARY\nCOMPLAINT UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT Facts: The complainant advanced INR 4,50,000 on 2026-01-15. The accused issued cheque no. 883271 dated 2026-02-20. The cheque was dishonoured on 2026-02-25 for insufficient funds. A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.\n\nKEY FACTS\n- COMPLAINT UNDER SECTION 138 OF THE NEGOTIABLE INSTRUMENTS ACT\n- Facts: The complainant advanced INR 4,50,000 on 2026-01-15. The accused issued cheque no. 883271 dated 2026-02-20.\n- The cheque was dishonoured on 2026-02-25 for insufficient funds.\n- A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.\n\nIMPORTANT CLAUSES\n- A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.\n\nLEGAL ISSUES IDENTIFIED\n- Cheque dishonour compliance and statutory demand.\n- Service of notice and response timeline.\n\nOBLIGATIONS\n- A statutory notice dated 2026-03-03 was served and the accused failed to comply within 15 days.\n\nRISKS\nNo immediate drafting risk was flagged from the available text.\n\nMISSING POINTS\n- Signature block\n\nCONTRADICTIONS WITH CASE\n- Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.\n- Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.\n- Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.\n- Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.\n- Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days.\n\nSUGGESTED LEGAL STRATEGY\n- Use the dishonour event, cheque details, and bank memo facts to support statutory compliance and liability.\n- Highlight service, demand, and response timeline to strengthen cause of action.\n\nPrepared for professional legal review. Verify statutory references, final facts, and court-specific drafting requirements before use.",
+      "strength": {
+        "matterId": "cheque-bounce-complete",
+        "overallScore": 60,
+        "strengthLevel": "MODERATE",
+        "winProbability": "MEDIUM",
+        "scoreBreakdown": {
+          "authorityFit": 30,
+          "evidenceStrength": 71,
+          "consistency": 75
+        },
+        "strengths": [
+          "Document support appears available for payment proof.",
+          "Document support appears available for legal notice / reply proof.",
+          "Fact narrative appears sufficiently specific for initial legal analysis.",
+          "Chronology markers are present in the fact narrative."
+        ],
+        "weaknesses": [
+          "No selected authorities were provided."
+        ],
+        "missingEvidence": [],
+        "riskAnalysis": [],
+        "suggestions": [
+          "Add at least one supporting precedent to improve authority strength."
+        ],
+        "authorityReview": []
+      },
+      "prediction": {
+        "winProbability": 68,
+        "riskLevel": "MEDIUM",
+        "confidenceScore": 60,
+        "keyFactors": [
+          "Document analysis extracted concrete factual anchors.",
+          "Document text contains obligation language that can support enforcement.",
+          "Fact narrative is developed enough for issue-level prediction."
+        ],
+        "strengths": [
+          "Document support appears available for payment proof.",
+          "Document support appears available for legal notice / reply proof.",
+          "Fact narrative appears sufficiently specific for initial legal analysis.",
+          "Chronology markers are present in the fact narrative."
+        ],
+        "weaknesses": [
+          "No selected authorities were provided.",
+          "Document gap affects evidentiary position: Signature block.",
+          "No meaningful authority set was supplied for prediction.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days."
+        ],
+        "improvementSuggestions": [
+          "Add at least one supporting precedent to improve authority strength.",
+          "Address the document gap: Signature block."
+        ],
+        "scoreBreakdown": {
+          "evidenceStrength": 85,
+          "authorityQuality": 30,
+          "consistency": 55,
+          "riskPenaltyAdjusted": 100
+        }
+      },
+      "readiness": {
+        "matterId": "cheque-bounce-complete",
+        "readinessScore": 90,
+        "readinessLevel": "READY",
+        "summary": "The matter appears substantially ready, subject to final lawyer verification.",
+        "checklist": [
+          {
+            "key": "facts",
+            "label": "Material facts captured",
+            "status": "READY",
+            "note": "Core facts are available."
+          },
+          {
+            "key": "issues",
+            "label": "Issues identified",
+            "status": "READY",
+            "note": "Issue list is available."
+          },
+          {
+            "key": "jurisdiction",
+            "label": "Jurisdiction checked",
+            "status": "READY",
+            "note": "Jurisdiction is available or mentioned."
+          },
+          {
+            "key": "chronology",
+            "label": "Chronology / dates available",
+            "status": "READY",
+            "note": "Dates or chronology markers are present."
+          },
+          {
+            "key": "documents",
+            "label": "Supporting documents attached",
+            "status": "READY",
+            "note": "Supporting records are present."
+          },
+          {
+            "key": "authorities",
+            "label": "Authorities selected",
+            "status": "CAUTION",
+            "note": "Select at least one relevant good-law authority."
+          },
+          {
+            "key": "limitation",
+            "label": "Limitation / timing reviewed",
+            "status": "READY",
+            "note": "Timing risk appears to be considered."
+          },
+          {
+            "key": "prayer",
+            "label": "Prayer / relief section",
+            "status": "READY",
+            "note": "Prayer section detected."
+          },
+          {
+            "key": "annexures",
+            "label": "Annexures / enclosures",
+            "status": "READY",
+            "note": "Annexures or enclosures appear available."
+          },
+          {
+            "key": "vakalat",
+            "label": "Counsel / representation block",
+            "status": "CAUTION",
+            "note": "Add counsel / representation details where required."
+          }
+        ],
+        "missingItems": [],
+        "criticalRisks": [],
+        "nextSteps": []
+      },
+      "consistency": {
+        "consistencyScore": 0,
+        "consistencyLevel": "CONFLICTED",
+        "summary": "Material contradictions or narrative gaps should be resolved before relying on this matter record.",
+        "contradictions": [
+          "Date reference 2026-01-15 appears differently across Facts, Draft.",
+          "Date reference 2026-02-20 appears differently across Facts, Draft.",
+          "Date reference 2026-02-25 appears differently across Facts, Draft.",
+          "Date reference 2026-03-03 appears differently across Facts, Draft.",
+          "Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.",
+          "Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.",
+          "Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.",
+          "Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.",
+          "Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days.",
+          "Draft does not clearly reflect this fact: 2026-01-10: Borrower requested a short-term hand loan of INR 4,50,000 from the lender for business needs."
+        ],
+        "missingCoverage": [],
+        "narrativeWeaknesses": [
+          "Chronology is missing, which makes sequence-sensitive arguments weaker."
+        ],
+        "suggestions": [
+          "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+          "Prepare a clean dated chronology and align all drafts and notices to it."
+        ],
+        "signalCount": 15
+      },
+      "coverage": {
+        "overallScore": 60,
+        "coverageLevel": "PARTIAL COVERAGE",
+        "summary": "Some issues are covered well, but several still need evidence, authority, or draft support.",
+        "matrix": [
+          {
+            "issue": "Cheque dishonour under Section 138 NI Act",
+            "coverageStatus": "PARTIAL",
+            "factSupport": "YES",
+            "documentSupport": "YES",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "YES",
+            "riskReviewed": "NO",
+            "matchedDocuments": [
+              "Cheque return memo"
+            ],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "Documents support this issue: Cheque return memo.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Draft text reflects this issue."
+            ]
+          },
+          {
+            "issue": "Legally enforceable debt proof",
+            "coverageStatus": "PARTIAL",
+            "factSupport": "YES",
+            "documentSupport": "YES",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "NO",
+            "riskReviewed": "NO",
+            "matchedDocuments": [
+              "Bank transfer proof"
+            ],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "Documents support this issue: Bank transfer proof.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Current draft does not clearly reflect this issue."
+            ]
+          },
+          {
+            "issue": "Statutory notice compliance",
+            "coverageStatus": "PARTIAL",
+            "factSupport": "YES",
+            "documentSupport": "YES",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "YES",
+            "riskReviewed": "NO",
+            "matchedDocuments": [
+              "Statutory notice"
+            ],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "Documents support this issue: Statutory notice.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Draft text reflects this issue."
+            ]
+          }
+        ],
+        "gaps": [
+          "Cheque dishonour under Section 138 NI Act: facts=YES, docs=YES, authority=NO, draft=YES",
+          "Legally enforceable debt proof: facts=YES, docs=YES, authority=NO, draft=NO",
+          "Statutory notice compliance: facts=YES, docs=YES, authority=NO, draft=YES"
+        ],
+        "suggestions": [
+          "Map at least one strong authority to issue: Cheque dishonour under Section 138 NI Act.",
+          "Add opponent-risk analysis for issue: Cheque dishonour under Section 138 NI Act.",
+          "Map at least one strong authority to issue: Legally enforceable debt proof.",
+          "Ensure the draft expressly addresses issue: Legally enforceable debt proof.",
+          "Add opponent-risk analysis for issue: Legally enforceable debt proof.",
+          "Map at least one strong authority to issue: Statutory notice compliance.",
+          "Add opponent-risk analysis for issue: Statutory notice compliance."
+        ],
+        "stats": {
+          "issueCount": 3,
+          "strongCount": 0,
+          "weakCount": 0
+        }
+      },
+      "draftValidation": {
+        "validationScore": 100,
+        "validationLevel": "COURT READY",
+        "summary": "The draft appears structurally close to court-ready, subject to lawyer finalisation.",
+        "checks": [
+          {
+            "key": "ni_act_reference",
+            "label": "Correct NI Act reference present",
+            "passed": true,
+            "note": "Cheque dishonour drafts should cite the correct NI Act provision.",
+            "severity": "high"
+          }
+        ],
+        "missingSections": [],
+        "criticalIssues": [],
+        "suggestions": [],
+        "courtType": "trial_court",
+        "draftType": "complaint",
+        "inferredDraftType": "complaint"
+      },
+      "filingPack": {
+        "filingScore": 60,
+        "filingDecision": "HOLD",
+        "summary": "The filing pack still has blocking issues that should be resolved before filing.",
+        "blockers": [
+          "Readiness blocker: Jurisdiction checked",
+          "Consistency blocker: Date reference 2026-01-15 appears differently across Facts, Draft.",
+          "Consistency blocker: Date reference 2026-02-20 appears differently across Facts, Draft.",
+          "Consistency blocker: Date reference 2026-02-25 appears differently across Facts, Draft.",
+          "Consistency blocker: Date reference 2026-03-03 appears differently across Facts, Draft."
+        ],
+        "warnings": [
+          "Coverage warning: Cheque dishonour under Section 138 NI Act: facts=YES, docs=YES, authority=NO, draft=YES",
+          "Coverage warning: Legally enforceable debt proof: facts=YES, docs=YES, authority=NO, draft=NO",
+          "Coverage warning: Statutory notice compliance: facts=YES, docs=YES, authority=NO, draft=YES"
+        ],
+        "recommendations": [
+          "Confirm territorial and subject-matter jurisdiction.",
+          "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+          "Prepare a clean dated chronology and align all drafts and notices to it.",
+          "Map at least one strong authority to issue: Cheque dishonour under Section 138 NI Act.",
+          "Add opponent-risk analysis for issue: Cheque dishonour under Section 138 NI Act.",
+          "Map at least one strong authority to issue: Legally enforceable debt proof.",
+          "Ensure the draft expressly addresses issue: Legally enforceable debt proof.",
+          "Add opponent-risk analysis for issue: Legally enforceable debt proof."
+        ],
+        "componentScores": {
+          "readiness": 80,
+          "consistency": 0,
+          "coverage": 60,
+          "draftValidation": 100,
+          "authorityFreshness": 35
+        },
+        "readiness": {
+          "matterId": "cheque-bounce-complete",
+          "readinessScore": 80,
+          "readinessLevel": "READY",
+          "summary": "The matter appears substantially ready, subject to final lawyer verification.",
+          "checklist": [
+            {
+              "key": "facts",
+              "label": "Material facts captured",
+              "status": "READY",
+              "note": "Core facts are available."
+            },
+            {
+              "key": "issues",
+              "label": "Issues identified",
+              "status": "READY",
+              "note": "Issue list is available."
+            },
+            {
+              "key": "jurisdiction",
+              "label": "Jurisdiction checked",
+              "status": "MISSING",
+              "note": "Confirm territorial and subject-matter jurisdiction."
+            },
+            {
+              "key": "chronology",
+              "label": "Chronology / dates available",
+              "status": "READY",
+              "note": "Dates or chronology markers are present."
+            },
+            {
+              "key": "documents",
+              "label": "Supporting documents attached",
+              "status": "READY",
+              "note": "Supporting records are present."
+            },
+            {
+              "key": "authorities",
+              "label": "Authorities selected",
+              "status": "CAUTION",
+              "note": "Select at least one relevant good-law authority."
+            },
+            {
+              "key": "limitation",
+              "label": "Limitation / timing reviewed",
+              "status": "READY",
+              "note": "Timing risk appears to be considered."
+            },
+            {
+              "key": "prayer",
+              "label": "Prayer / relief section",
+              "status": "READY",
+              "note": "Prayer section detected."
+            },
+            {
+              "key": "annexures",
+              "label": "Annexures / enclosures",
+              "status": "READY",
+              "note": "Annexures or enclosures appear available."
+            },
+            {
+              "key": "vakalat",
+              "label": "Counsel / representation block",
+              "status": "CAUTION",
+              "note": "Add counsel / representation details where required."
+            }
+          ],
+          "missingItems": [
+            "Jurisdiction checked"
+          ],
+          "criticalRisks": [],
+          "nextSteps": [
+            "Confirm territorial and subject-matter jurisdiction."
+          ]
+        },
+        "consistency": {
+          "consistencyScore": 0,
+          "consistencyLevel": "CONFLICTED",
+          "summary": "Material contradictions or narrative gaps should be resolved before relying on this matter record.",
+          "contradictions": [
+            "Date reference 2026-01-15 appears differently across Facts, Draft.",
+            "Date reference 2026-02-20 appears differently across Facts, Draft.",
+            "Date reference 2026-02-25 appears differently across Facts, Draft.",
+            "Date reference 2026-03-03 appears differently across Facts, Draft.",
+            "Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.",
+            "Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.",
+            "Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.",
+            "Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.",
+            "Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days.",
+            "Draft does not clearly reflect this fact: 2026-01-10: Borrower requested a short-term hand loan of INR 4,50,000 from the lender for business needs."
+          ],
+          "missingCoverage": [],
+          "narrativeWeaknesses": [
+            "Chronology is missing, which makes sequence-sensitive arguments weaker."
+          ],
+          "suggestions": [
+            "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+            "Prepare a clean dated chronology and align all drafts and notices to it."
+          ],
+          "signalCount": 15
+        },
+        "coverage": {
+          "overallScore": 60,
+          "coverageLevel": "PARTIAL COVERAGE",
+          "summary": "Some issues are covered well, but several still need evidence, authority, or draft support.",
+          "matrix": [
+            {
+              "issue": "Cheque dishonour under Section 138 NI Act",
+              "coverageStatus": "PARTIAL",
+              "factSupport": "YES",
+              "documentSupport": "YES",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "YES",
+              "riskReviewed": "NO",
+              "matchedDocuments": [
+                "Cheque return memo"
+              ],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "Documents support this issue: Cheque return memo.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Draft text reflects this issue."
+              ]
+            },
+            {
+              "issue": "Legally enforceable debt proof",
+              "coverageStatus": "PARTIAL",
+              "factSupport": "YES",
+              "documentSupport": "YES",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "NO",
+              "riskReviewed": "NO",
+              "matchedDocuments": [
+                "Bank transfer proof"
+              ],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "Documents support this issue: Bank transfer proof.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Current draft does not clearly reflect this issue."
+              ]
+            },
+            {
+              "issue": "Statutory notice compliance",
+              "coverageStatus": "PARTIAL",
+              "factSupport": "YES",
+              "documentSupport": "YES",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "YES",
+              "riskReviewed": "NO",
+              "matchedDocuments": [
+                "Statutory notice"
+              ],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "Documents support this issue: Statutory notice.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Draft text reflects this issue."
+              ]
+            }
+          ],
+          "gaps": [
+            "Cheque dishonour under Section 138 NI Act: facts=YES, docs=YES, authority=NO, draft=YES",
+            "Legally enforceable debt proof: facts=YES, docs=YES, authority=NO, draft=NO",
+            "Statutory notice compliance: facts=YES, docs=YES, authority=NO, draft=YES"
+          ],
+          "suggestions": [
+            "Map at least one strong authority to issue: Cheque dishonour under Section 138 NI Act.",
+            "Add opponent-risk analysis for issue: Cheque dishonour under Section 138 NI Act.",
+            "Map at least one strong authority to issue: Legally enforceable debt proof.",
+            "Ensure the draft expressly addresses issue: Legally enforceable debt proof.",
+            "Add opponent-risk analysis for issue: Legally enforceable debt proof.",
+            "Map at least one strong authority to issue: Statutory notice compliance.",
+            "Add opponent-risk analysis for issue: Statutory notice compliance."
+          ],
+          "stats": {
+            "issueCount": 3,
+            "strongCount": 0,
+            "weakCount": 0
+          }
+        },
+        "draftValidation": {
+          "validationScore": 100,
+          "validationLevel": "COURT READY",
+          "summary": "The draft appears structurally close to court-ready, subject to lawyer finalisation.",
+          "checks": [
+            {
+              "key": "ni_act_reference",
+              "label": "Correct NI Act reference present",
+              "passed": true,
+              "note": "Cheque dishonour drafts should cite the correct NI Act provision.",
+              "severity": "high"
+            }
+          ],
+          "missingSections": [],
+          "criticalIssues": [],
+          "suggestions": [],
+          "courtType": "trial_court",
+          "draftType": "complaint",
+          "inferredDraftType": "complaint"
+        },
+        "authorityFreshness": {
+          "score": 35,
+          "staleAuthorities": [],
+          "badAuthorities": [],
+          "authorityChecks": []
+        }
+      },
+      "review": {
+        "id": "45e967acdbee1ef490f289b5d1905fc0dbbf8246",
+        "ownerId": "scenario-test-owner",
+        "matterId": "cheque-bounce-complete",
+        "entityType": "filing_pack",
+        "entityId": "",
+        "entityKey": "filing_pack:cheque-bounce-complete",
+        "entityLabel": "Final Filing Pack",
+        "matterTitle": "Cheque Bounce Recovery With Complete Materials",
+        "draftVersionLabel": "v1",
+        "status": "needs_revision",
+        "approvalRole": "",
+        "reviewerName": "Scenario Bot",
+        "reviewNotes": "The filing pack still has blocking issues that should be resolved before filing.",
+        "reviewFindings": [
+          "Date reference 2026-01-15 appears differently across Facts, Draft.",
+          "Date reference 2026-02-20 appears differently across Facts, Draft.",
+          "Date reference 2026-02-25 appears differently across Facts, Draft.",
+          "Date reference 2026-03-03 appears differently across Facts, Draft.",
+          "Case fact not clearly reflected in document: 2026-01-10: borrower requested a short-term hand loan of inr 4,50,000 from the lender for business needs.",
+          "Case fact not clearly reflected in document: 2026-01-15: lender transferred inr 4,50,000 to borrower through bank transfer.",
+          "Case fact not clearly reflected in document: 2026-02-20: borrower issued cheque no. 883271 drawn on sbi for inr 4,50,000 towards legally enforceable debt.",
+          "Case fact not clearly reflected in document: 2026-02-25: cheque was presented and returned unpaid with bank memo stating insufficient funds.",
+          "Case fact not clearly reflected in document: 2026-03-03: statutory legal notice was sent demanding payment within 15 days.",
+          "Draft does not clearly reflect this fact: 2026-01-10: Borrower requested a short-term hand loan of INR 4,50,000 from the lender for business needs."
+        ],
+        "outputSummary": "The filing pack still has blocking issues that should be resolved before filing.",
+        "traceabilityNote": "",
+        "updatedAt": "2026-03-31T17:07:22.020Z",
+        "createdAt": "2026-03-31T17:07:22.020Z",
+        "reviewedAt": null,
+        "approvedAt": null
+      }
+    },
+    {
+      "scenario": {
+        "id": "employment-termination-gaps",
+        "title": "Employment Termination Dispute With Weak Records",
+        "facts": "Employee states he was suddenly terminated after raising concerns about unpaid reimbursements.\nTermination happened maybe in February 2026 but exact date is not confirmed.\nNo written termination letter is currently available.\nEmployee believes salary dues for two months are unpaid.",
+        "issues": [
+          "Wrongful termination",
+          "Salary dues recovery",
+          "Proof of employer communication"
+        ],
+        "draftType": "notice",
+        "courtType": "general",
+        "draftText": "LEGAL NOTICE\nMy client was terminated unfairly.\nYou are called upon to settle dues immediately.",
+        "documents": [
+          {
+            "title": "WhatsApp screenshots",
+            "content": "Messages discussing reimbursements and office pressure."
+          }
+        ]
+      },
+      "documentAnalysis": {
+        "summary": "LEGAL NOTICE My client was terminated unfairly. You are called upon to settle dues immediately.",
+        "keyFacts": [
+          "LEGAL NOTICE",
+          "My client was terminated unfairly."
+        ],
+        "importantClauses": [
+          "LEGAL NOTICE"
+        ],
+        "importantClauseRefs": [
+          {
+            "clauseTitle": "Notice",
+            "clauseText": "LEGAL NOTICE",
+            "location": "Paragraph 1"
+          }
+        ],
+        "risks": [
+          "Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "missingPoints": [
+          "Precise dates",
+          "Signature block",
+          "Compliance timeline"
+        ],
+        "suggestedArguments": [
+          "Highlight service, demand, and response timeline to strengthen cause of action."
+        ],
+        "documentType": "notice",
+        "legalEntities": [
+          "LEGAL NOTICE\nMy"
+        ],
+        "obligations": [],
+        "legalIssues": [
+          "Breach / default and enforceability of payment obligation.",
+          "Service of notice and response timeline."
+        ],
+        "contradictionsWithCase": [
+          "Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+          "Case fact not clearly reflected in document: termination happened maybe in february 2026 but exact date is not confirmed.",
+          "Case fact not clearly reflected in document: no written termination letter is currently available.",
+          "Case fact not clearly reflected in document: employee believes salary dues for two months are unpaid."
+        ]
+      },
+      "memoText": "DOCUMENT ANALYSIS MEMO\n\nSUMMARY\nLEGAL NOTICE My client was terminated unfairly. You are called upon to settle dues immediately.\n\nKEY FACTS\n- LEGAL NOTICE\n- My client was terminated unfairly.\n\nIMPORTANT CLAUSES\n- LEGAL NOTICE\n\nLEGAL ISSUES IDENTIFIED\n- Breach / default and enforceability of payment obligation.\n- Service of notice and response timeline.\n\nOBLIGATIONS\nNo express obligation language was clearly detected.\n\nRISKS\n- Absence of precise dates may weaken chronology and limitation analysis.\n\nMISSING POINTS\n- Precise dates\n- Signature block\n- Compliance timeline\n\nCONTRADICTIONS WITH CASE\n- Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements.\n- Case fact not clearly reflected in document: termination happened maybe in february 2026 but exact date is not confirmed.\n- Case fact not clearly reflected in document: no written termination letter is currently available.\n- Case fact not clearly reflected in document: employee believes salary dues for two months are unpaid.\n\nSUGGESTED LEGAL STRATEGY\n- Highlight service, demand, and response timeline to strengthen cause of action.\n\nPrepared for professional legal review. Verify statutory references, final facts, and court-specific drafting requirements before use.",
+      "strength": {
+        "matterId": "employment-termination-gaps",
+        "overallScore": 49,
+        "strengthLevel": "MODERATE",
+        "winProbability": "MEDIUM",
+        "scoreBreakdown": {
+          "authorityFit": 30,
+          "evidenceStrength": 55,
+          "consistency": 47
+        },
+        "strengths": [],
+        "weaknesses": [
+          "No selected authorities were provided.",
+          "Narrative contains uncertainty markers that weaken factual confidence."
+        ],
+        "missingEvidence": [],
+        "riskAnalysis": [],
+        "suggestions": [
+          "Add at least one supporting precedent to improve authority strength."
+        ],
+        "authorityReview": []
+      },
+      "prediction": {
+        "winProbability": 46,
+        "riskLevel": "MEDIUM",
+        "confidenceScore": 40,
+        "keyFactors": [
+          "Document analysis extracted concrete factual anchors.",
+          "Fact narrative is developed enough for issue-level prediction."
+        ],
+        "strengths": [],
+        "weaknesses": [
+          "No selected authorities were provided.",
+          "Narrative contains uncertainty markers that weaken factual confidence.",
+          "Document gap affects evidentiary position: Precise dates.",
+          "Document gap affects evidentiary position: Signature block.",
+          "Document gap affects evidentiary position: Compliance timeline.",
+          "No meaningful authority set was supplied for prediction.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: termination happened maybe in february 2026 but exact date is not confirmed.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: no written termination letter is currently available.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: employee believes salary dues for two months are unpaid."
+        ],
+        "improvementSuggestions": [
+          "Add at least one supporting precedent to improve authority strength.",
+          "Address the document gap: Precise dates.",
+          "Address the document gap: Signature block.",
+          "Address the document gap: Compliance timeline.",
+          "Mitigate risk proactively: Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "scoreBreakdown": {
+          "evidenceStrength": 53,
+          "authorityQuality": 30,
+          "consistency": 15,
+          "riskPenaltyAdjusted": 95
+        }
+      },
+      "readiness": {
+        "matterId": "employment-termination-gaps",
+        "readinessScore": 73,
+        "readinessLevel": "PARTIAL",
+        "summary": "The matter is partially ready but still needs targeted filing checks.",
+        "checklist": [
+          {
+            "key": "facts",
+            "label": "Material facts captured",
+            "status": "READY",
+            "note": "Core facts are available."
+          },
+          {
+            "key": "issues",
+            "label": "Issues identified",
+            "status": "READY",
+            "note": "Issue list is available."
+          },
+          {
+            "key": "jurisdiction",
+            "label": "Jurisdiction checked",
+            "status": "READY",
+            "note": "Jurisdiction is available or mentioned."
+          },
+          {
+            "key": "chronology",
+            "label": "Chronology / dates available",
+            "status": "READY",
+            "note": "Dates or chronology markers are present."
+          },
+          {
+            "key": "documents",
+            "label": "Supporting documents attached",
+            "status": "READY",
+            "note": "Supporting records are present."
+          },
+          {
+            "key": "authorities",
+            "label": "Authorities selected",
+            "status": "CAUTION",
+            "note": "Select at least one relevant good-law authority."
+          },
+          {
+            "key": "limitation",
+            "label": "Limitation / timing reviewed",
+            "status": "CAUTION",
+            "note": "Check delay, limitation, and statutory deadlines explicitly."
+          },
+          {
+            "key": "prayer",
+            "label": "Prayer / relief section",
+            "status": "CAUTION",
+            "note": "Add a clear prayer / relief section."
+          },
+          {
+            "key": "annexures",
+            "label": "Annexures / enclosures",
+            "status": "CAUTION",
+            "note": "Prepare annexure and enclosure list."
+          },
+          {
+            "key": "vakalat",
+            "label": "Counsel / representation block",
+            "status": "CAUTION",
+            "note": "Add counsel / representation details where required."
+          },
+          {
+            "key": "notice_window",
+            "label": "Notice timeline stated",
+            "status": "CAUTION",
+            "note": "State the exact compliance period before service."
+          }
+        ],
+        "missingItems": [],
+        "criticalRisks": [
+          "Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "nextSteps": []
+      },
+      "consistency": {
+        "consistencyScore": 0,
+        "consistencyLevel": "CONFLICTED",
+        "summary": "Material contradictions or narrative gaps should be resolved before relying on this matter record.",
+        "contradictions": [
+          "Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+          "Case fact not clearly reflected in document: termination happened maybe in february 2026 but exact date is not confirmed.",
+          "Case fact not clearly reflected in document: no written termination letter is currently available.",
+          "Case fact not clearly reflected in document: employee believes salary dues for two months are unpaid.",
+          "Draft does not clearly reflect this fact: Employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+          "Draft does not clearly reflect this fact: Termination happened maybe in February 2026 but exact date is not confirmed.",
+          "Draft does not clearly reflect this fact: No written termination letter is currently available.",
+          "Draft does not clearly reflect this fact: Employee believes salary dues for two months are unpaid."
+        ],
+        "missingCoverage": [
+          "Issue not clearly supported across current matter materials: Proof of employer communication."
+        ],
+        "narrativeWeaknesses": [
+          "Chronology is missing, which makes sequence-sensitive arguments weaker.",
+          "Matter materials contain uncertainty markers that should be resolved before filing.",
+          "No reliable dated events were found across the current matter materials."
+        ],
+        "suggestions": [
+          "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+          "Add issue-wise support in facts, documents, or draft text for the uncovered issues.",
+          "Prepare a clean dated chronology and align all drafts and notices to it.",
+          "Replace uncertain language with verified facts or mark those statements for lawyer confirmation."
+        ],
+        "signalCount": 12
+      },
+      "coverage": {
+        "overallScore": 37,
+        "coverageLevel": "GAP HEAVY",
+        "summary": "Multiple issues remain under-supported and should be strengthened before filing or final advice.",
+        "matrix": [
+          {
+            "issue": "Wrongful termination",
+            "coverageStatus": "WEAK",
+            "factSupport": "YES",
+            "documentSupport": "NO",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "NO",
+            "riskReviewed": "NO",
+            "matchedDocuments": [],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "No document support is clearly mapped to this issue.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Current draft does not clearly reflect this issue."
+            ]
+          },
+          {
+            "issue": "Salary dues recovery",
+            "coverageStatus": "PARTIAL",
+            "factSupport": "YES",
+            "documentSupport": "NO",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "YES",
+            "riskReviewed": "NO",
+            "matchedDocuments": [],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "No document support is clearly mapped to this issue.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Draft text reflects this issue."
+            ]
+          },
+          {
+            "issue": "Proof of employer communication",
+            "coverageStatus": "WEAK",
+            "factSupport": "NO",
+            "documentSupport": "NO",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "NO",
+            "riskReviewed": "NO",
+            "matchedDocuments": [],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts do not clearly cover this issue.",
+              "No document support is clearly mapped to this issue.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Current draft does not clearly reflect this issue."
+            ]
+          }
+        ],
+        "gaps": [
+          "Wrongful termination: facts=YES, docs=NO, authority=NO, draft=NO",
+          "Salary dues recovery: facts=YES, docs=NO, authority=NO, draft=YES",
+          "Proof of employer communication: facts=NO, docs=NO, authority=NO, draft=NO"
+        ],
+        "suggestions": [
+          "Add document support for issue: Wrongful termination.",
+          "Map at least one strong authority to issue: Wrongful termination.",
+          "Ensure the draft expressly addresses issue: Wrongful termination.",
+          "Add opponent-risk analysis for issue: Wrongful termination.",
+          "Add document support for issue: Salary dues recovery.",
+          "Map at least one strong authority to issue: Salary dues recovery.",
+          "Add opponent-risk analysis for issue: Salary dues recovery.",
+          "Add document support for issue: Proof of employer communication.",
+          "Map at least one strong authority to issue: Proof of employer communication.",
+          "Ensure the draft expressly addresses issue: Proof of employer communication."
+        ],
+        "stats": {
+          "issueCount": 3,
+          "strongCount": 0,
+          "weakCount": 2
+        }
+      },
+      "draftValidation": {
+        "validationScore": 29,
+        "validationLevel": "NEEDS WORK",
+        "summary": "The draft is missing important court-facing sections or formatting blocks.",
+        "checks": [
+          {
+            "key": "notice_heading",
+            "label": "Notice heading present",
+            "passed": true,
+            "note": "Legal notice should clearly identify itself as a notice.",
+            "severity": "medium"
+          },
+          {
+            "key": "parties",
+            "label": "Party block present",
+            "passed": false,
+            "note": "Notice should clearly identify sender and recipient roles.",
+            "severity": "high"
+          },
+          {
+            "key": "facts",
+            "label": "Structured facts present",
+            "passed": false,
+            "note": "Facts section should be clearly structured.",
+            "severity": "high"
+          },
+          {
+            "key": "signature",
+            "label": "Signature block present",
+            "passed": false,
+            "note": "Signature / counsel block should be present.",
+            "severity": "medium"
+          },
+          {
+            "key": "subject",
+            "label": "Subject line present",
+            "passed": false,
+            "note": "Legal notices should carry a clear subject line.",
+            "severity": "high"
+          },
+          {
+            "key": "legal_basis",
+            "label": "Legal basis present",
+            "passed": false,
+            "note": "Notice should identify the core legal basis.",
+            "severity": "high"
+          },
+          {
+            "key": "demand",
+            "label": "Demand / compliance clause present",
+            "passed": true,
+            "note": "Notice should include a clear compliance demand and consequence clause.",
+            "severity": "high"
+          }
+        ],
+        "missingSections": [
+          "Party block present",
+          "Structured facts present",
+          "Signature block present",
+          "Subject line present",
+          "Legal basis present"
+        ],
+        "criticalIssues": [
+          "Notice should clearly identify sender and recipient roles.",
+          "Facts section should be clearly structured.",
+          "Legal notices should carry a clear subject line.",
+          "Notice should identify the core legal basis."
+        ],
+        "suggestions": [
+          "Notice should clearly identify sender and recipient roles.",
+          "Facts section should be clearly structured.",
+          "Signature / counsel block should be present.",
+          "Legal notices should carry a clear subject line.",
+          "Notice should identify the core legal basis."
+        ],
+        "courtType": "general",
+        "draftType": "notice",
+        "inferredDraftType": "notice"
+      },
+      "filingPack": {
+        "filingScore": 35,
+        "filingDecision": "HOLD",
+        "summary": "The filing pack still has blocking issues that should be resolved before filing.",
+        "blockers": [
+          "Readiness blocker: Jurisdiction checked",
+          "Consistency blocker: Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+          "Consistency blocker: Case fact not clearly reflected in document: termination happened maybe in february 2026 but exact date is not confirmed.",
+          "Consistency blocker: Case fact not clearly reflected in document: no written termination letter is currently available.",
+          "Consistency blocker: Case fact not clearly reflected in document: employee believes salary dues for two months are unpaid.",
+          "Draft blocker: Notice should clearly identify sender and recipient roles.",
+          "Draft blocker: Facts section should be clearly structured.",
+          "Draft blocker: Legal notices should carry a clear subject line.",
+          "Draft blocker: Notice should identify the core legal basis."
+        ],
+        "warnings": [
+          "Coverage warning: Wrongful termination: facts=YES, docs=NO, authority=NO, draft=NO",
+          "Coverage warning: Salary dues recovery: facts=YES, docs=NO, authority=NO, draft=YES",
+          "Coverage warning: Proof of employer communication: facts=NO, docs=NO, authority=NO, draft=NO",
+          "Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "recommendations": [
+          "Confirm territorial and subject-matter jurisdiction.",
+          "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+          "Add issue-wise support in facts, documents, or draft text for the uncovered issues.",
+          "Prepare a clean dated chronology and align all drafts and notices to it.",
+          "Replace uncertain language with verified facts or mark those statements for lawyer confirmation.",
+          "Add document support for issue: Wrongful termination.",
+          "Map at least one strong authority to issue: Wrongful termination.",
+          "Ensure the draft expressly addresses issue: Wrongful termination.",
+          "Add opponent-risk analysis for issue: Wrongful termination.",
+          "Add document support for issue: Salary dues recovery.",
+          "Notice should clearly identify sender and recipient roles.",
+          "Facts section should be clearly structured."
+        ],
+        "componentScores": {
+          "readiness": 64,
+          "consistency": 0,
+          "coverage": 37,
+          "draftValidation": 29,
+          "authorityFreshness": 35
+        },
+        "readiness": {
+          "matterId": "employment-termination-gaps",
+          "readinessScore": 64,
+          "readinessLevel": "PARTIAL",
+          "summary": "The matter is partially ready but still needs targeted filing checks.",
+          "checklist": [
+            {
+              "key": "facts",
+              "label": "Material facts captured",
+              "status": "READY",
+              "note": "Core facts are available."
+            },
+            {
+              "key": "issues",
+              "label": "Issues identified",
+              "status": "READY",
+              "note": "Issue list is available."
+            },
+            {
+              "key": "jurisdiction",
+              "label": "Jurisdiction checked",
+              "status": "MISSING",
+              "note": "Confirm territorial and subject-matter jurisdiction."
+            },
+            {
+              "key": "chronology",
+              "label": "Chronology / dates available",
+              "status": "READY",
+              "note": "Dates or chronology markers are present."
+            },
+            {
+              "key": "documents",
+              "label": "Supporting documents attached",
+              "status": "READY",
+              "note": "Supporting records are present."
+            },
+            {
+              "key": "authorities",
+              "label": "Authorities selected",
+              "status": "CAUTION",
+              "note": "Select at least one relevant good-law authority."
+            },
+            {
+              "key": "limitation",
+              "label": "Limitation / timing reviewed",
+              "status": "CAUTION",
+              "note": "Check delay, limitation, and statutory deadlines explicitly."
+            },
+            {
+              "key": "prayer",
+              "label": "Prayer / relief section",
+              "status": "CAUTION",
+              "note": "Add a clear prayer / relief section."
+            },
+            {
+              "key": "annexures",
+              "label": "Annexures / enclosures",
+              "status": "CAUTION",
+              "note": "Prepare annexure and enclosure list."
+            },
+            {
+              "key": "vakalat",
+              "label": "Counsel / representation block",
+              "status": "CAUTION",
+              "note": "Add counsel / representation details where required."
+            },
+            {
+              "key": "notice_window",
+              "label": "Notice timeline stated",
+              "status": "CAUTION",
+              "note": "State the exact compliance period before service."
+            }
+          ],
+          "missingItems": [
+            "Jurisdiction checked"
+          ],
+          "criticalRisks": [
+            "Absence of precise dates may weaken chronology and limitation analysis."
+          ],
+          "nextSteps": [
+            "Confirm territorial and subject-matter jurisdiction."
+          ]
+        },
+        "consistency": {
+          "consistencyScore": 0,
+          "consistencyLevel": "CONFLICTED",
+          "summary": "Material contradictions or narrative gaps should be resolved before relying on this matter record.",
+          "contradictions": [
+            "Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+            "Case fact not clearly reflected in document: termination happened maybe in february 2026 but exact date is not confirmed.",
+            "Case fact not clearly reflected in document: no written termination letter is currently available.",
+            "Case fact not clearly reflected in document: employee believes salary dues for two months are unpaid.",
+            "Draft does not clearly reflect this fact: Employee states he was suddenly terminated after raising concerns about unpaid reimbursements.",
+            "Draft does not clearly reflect this fact: Termination happened maybe in February 2026 but exact date is not confirmed.",
+            "Draft does not clearly reflect this fact: No written termination letter is currently available.",
+            "Draft does not clearly reflect this fact: Employee believes salary dues for two months are unpaid."
+          ],
+          "missingCoverage": [
+            "Issue not clearly supported across current matter materials: Proof of employer communication."
+          ],
+          "narrativeWeaknesses": [
+            "Chronology is missing, which makes sequence-sensitive arguments weaker.",
+            "Matter materials contain uncertainty markers that should be resolved before filing.",
+            "No reliable dated events were found across the current matter materials."
+          ],
+          "suggestions": [
+            "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+            "Add issue-wise support in facts, documents, or draft text for the uncovered issues.",
+            "Prepare a clean dated chronology and align all drafts and notices to it.",
+            "Replace uncertain language with verified facts or mark those statements for lawyer confirmation."
+          ],
+          "signalCount": 12
+        },
+        "coverage": {
+          "overallScore": 37,
+          "coverageLevel": "GAP HEAVY",
+          "summary": "Multiple issues remain under-supported and should be strengthened before filing or final advice.",
+          "matrix": [
+            {
+              "issue": "Wrongful termination",
+              "coverageStatus": "WEAK",
+              "factSupport": "YES",
+              "documentSupport": "NO",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "NO",
+              "riskReviewed": "NO",
+              "matchedDocuments": [],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "No document support is clearly mapped to this issue.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Current draft does not clearly reflect this issue."
+              ]
+            },
+            {
+              "issue": "Salary dues recovery",
+              "coverageStatus": "PARTIAL",
+              "factSupport": "YES",
+              "documentSupport": "NO",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "YES",
+              "riskReviewed": "NO",
+              "matchedDocuments": [],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "No document support is clearly mapped to this issue.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Draft text reflects this issue."
+              ]
+            },
+            {
+              "issue": "Proof of employer communication",
+              "coverageStatus": "WEAK",
+              "factSupport": "NO",
+              "documentSupport": "NO",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "NO",
+              "riskReviewed": "NO",
+              "matchedDocuments": [],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts do not clearly cover this issue.",
+                "No document support is clearly mapped to this issue.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Current draft does not clearly reflect this issue."
+              ]
+            }
+          ],
+          "gaps": [
+            "Wrongful termination: facts=YES, docs=NO, authority=NO, draft=NO",
+            "Salary dues recovery: facts=YES, docs=NO, authority=NO, draft=YES",
+            "Proof of employer communication: facts=NO, docs=NO, authority=NO, draft=NO"
+          ],
+          "suggestions": [
+            "Add document support for issue: Wrongful termination.",
+            "Map at least one strong authority to issue: Wrongful termination.",
+            "Ensure the draft expressly addresses issue: Wrongful termination.",
+            "Add opponent-risk analysis for issue: Wrongful termination.",
+            "Add document support for issue: Salary dues recovery.",
+            "Map at least one strong authority to issue: Salary dues recovery.",
+            "Add opponent-risk analysis for issue: Salary dues recovery.",
+            "Add document support for issue: Proof of employer communication.",
+            "Map at least one strong authority to issue: Proof of employer communication.",
+            "Ensure the draft expressly addresses issue: Proof of employer communication."
+          ],
+          "stats": {
+            "issueCount": 3,
+            "strongCount": 0,
+            "weakCount": 2
+          }
+        },
+        "draftValidation": {
+          "validationScore": 29,
+          "validationLevel": "NEEDS WORK",
+          "summary": "The draft is missing important court-facing sections or formatting blocks.",
+          "checks": [
+            {
+              "key": "notice_heading",
+              "label": "Notice heading present",
+              "passed": true,
+              "note": "Legal notice should clearly identify itself as a notice.",
+              "severity": "medium"
+            },
+            {
+              "key": "parties",
+              "label": "Party block present",
+              "passed": false,
+              "note": "Notice should clearly identify sender and recipient roles.",
+              "severity": "high"
+            },
+            {
+              "key": "facts",
+              "label": "Structured facts present",
+              "passed": false,
+              "note": "Facts section should be clearly structured.",
+              "severity": "high"
+            },
+            {
+              "key": "signature",
+              "label": "Signature block present",
+              "passed": false,
+              "note": "Signature / counsel block should be present.",
+              "severity": "medium"
+            },
+            {
+              "key": "subject",
+              "label": "Subject line present",
+              "passed": false,
+              "note": "Legal notices should carry a clear subject line.",
+              "severity": "high"
+            },
+            {
+              "key": "legal_basis",
+              "label": "Legal basis present",
+              "passed": false,
+              "note": "Notice should identify the core legal basis.",
+              "severity": "high"
+            },
+            {
+              "key": "demand",
+              "label": "Demand / compliance clause present",
+              "passed": true,
+              "note": "Notice should include a clear compliance demand and consequence clause.",
+              "severity": "high"
+            }
+          ],
+          "missingSections": [
+            "Party block present",
+            "Structured facts present",
+            "Signature block present",
+            "Subject line present",
+            "Legal basis present"
+          ],
+          "criticalIssues": [
+            "Notice should clearly identify sender and recipient roles.",
+            "Facts section should be clearly structured.",
+            "Legal notices should carry a clear subject line.",
+            "Notice should identify the core legal basis."
+          ],
+          "suggestions": [
+            "Notice should clearly identify sender and recipient roles.",
+            "Facts section should be clearly structured.",
+            "Signature / counsel block should be present.",
+            "Legal notices should carry a clear subject line.",
+            "Notice should identify the core legal basis."
+          ],
+          "courtType": "general",
+          "draftType": "notice",
+          "inferredDraftType": "notice"
+        },
+        "authorityFreshness": {
+          "score": 35,
+          "staleAuthorities": [],
+          "badAuthorities": [],
+          "authorityChecks": []
+        }
+      },
+      "review": {
+        "id": "dbfd97f25600ed19d6c236dd783ea2dbd5591f4b",
+        "ownerId": "scenario-test-owner",
+        "matterId": "employment-termination-gaps",
+        "entityType": "filing_pack",
+        "entityId": "",
+        "entityKey": "filing_pack:employment-termination-gaps",
+        "entityLabel": "Final Filing Pack",
+        "matterTitle": "Employment Termination Dispute With Weak Records",
+        "draftVersionLabel": "v1",
+        "status": "needs_revision",
+        "approvalRole": "",
+        "reviewerName": "Scenario Bot",
+        "reviewNotes": "The filing pack still has blocking issues that should be resolved before filing.",
+        "reviewFindings": [
+          "Missing: Party block present",
+          "Missing: Structured facts present",
+          "Missing: Signature block present",
+          "Missing: Subject line present",
+          "Missing: Legal basis present",
+          "Notice should clearly identify sender and recipient roles.",
+          "Facts section should be clearly structured.",
+          "Legal notices should carry a clear subject line.",
+          "Notice should identify the core legal basis.",
+          "Case fact not clearly reflected in document: employee states he was suddenly terminated after raising concerns about unpaid reimbursements."
+        ],
+        "outputSummary": "The filing pack still has blocking issues that should be resolved before filing.",
+        "traceabilityNote": "",
+        "updatedAt": "2026-03-31T17:07:22.024Z",
+        "createdAt": "2026-03-31T17:07:22.024Z",
+        "reviewedAt": null,
+        "approvedAt": null
+      }
+    },
+    {
+      "scenario": {
+        "id": "property-recovery-conflict",
+        "title": "Property Possession Recovery With Date Conflicts",
+        "facts": "2025-06-01: Owner allowed occupant to stay temporarily in the property.\n2025-12-15: Owner demanded vacant possession.\n2026-01-05: Occupant refused to vacate and claimed oral tenancy.\nOwner says no rent was ever paid.",
+        "chronologyText": "2025-06-01: Occupant entered property.\n2025-11-30: Demand to vacate was first made verbally.\n2026-01-05: Occupant refused to vacate.",
+        "issues": [
+          "Possession recovery",
+          "Unauthorized occupation",
+          "Absence of tenancy proof"
+        ],
+        "draftType": "petition",
+        "courtType": "trial_court",
+        "draftText": "PLAINT FOR RECOVERY OF POSSESSION\nThe defendant was permitted to use the property temporarily from 2025-06-01.\nThe plaintiff requested vacant possession on 2025-12-15, but the defendant refused on 2026-01-05.\nPrayer: direct delivery of vacant possession.",
+        "documents": [
+          {
+            "title": "Title deed",
+            "content": "Registered sale deed in favour of owner."
+          },
+          {
+            "title": "Legal notice draft",
+            "content": "Draft notice for possession handover."
+          }
+        ]
+      },
+      "documentAnalysis": {
+        "summary": "PLAINT FOR RECOVERY OF POSSESSION The defendant was permitted to use the property temporarily from 2025-06-01. The plaintiff requested vacant possession on 2025-12-15, but the defendant refused on 2026-01-05. Prayer: direct delivery of vacant possession.",
+        "keyFacts": [
+          "The defendant was permitted to use the property temporarily from 2025-06-01.",
+          "The plaintiff requested vacant possession on 2025-12-15, but the defendant refused on 2026-01-05."
+        ],
+        "importantClauses": [],
+        "importantClauseRefs": [],
+        "risks": [
+          "Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "missingPoints": [
+          "Signature block",
+          "Jurisdiction clause / statement"
+        ],
+        "suggestedArguments": [
+          "Map the key factual assertions in this petition to the pleaded legal issues and supporting evidence."
+        ],
+        "documentType": "petition",
+        "legalEntities": [
+          "PLAINT FOR RECOVERY OF POSSESSION"
+        ],
+        "obligations": [
+          "Prayer: direct delivery of vacant possession."
+        ],
+        "legalIssues": [
+          "Map the petition facts to the core statutory or contractual issue before filing."
+        ],
+        "contradictionsWithCase": [
+          "Case fact not clearly reflected in document: 2025-06-01: owner allowed occupant to stay temporarily in the property.",
+          "Case fact not clearly reflected in document: 2025-12-15: owner demanded vacant possession.",
+          "Case fact not clearly reflected in document: 2026-01-05: occupant refused to vacate and claimed oral tenancy.",
+          "Case fact not clearly reflected in document: owner says no rent was ever paid."
+        ]
+      },
+      "memoText": "DOCUMENT ANALYSIS MEMO\n\nSUMMARY\nPLAINT FOR RECOVERY OF POSSESSION The defendant was permitted to use the property temporarily from 2025-06-01. The plaintiff requested vacant possession on 2025-12-15, but the defendant refused on 2026-01-05. Prayer: direct delivery of vacant possession.\n\nKEY FACTS\n- The defendant was permitted to use the property temporarily from 2025-06-01.\n- The plaintiff requested vacant possession on 2025-12-15, but the defendant refused on 2026-01-05.\n\nIMPORTANT CLAUSES\nNo clause-level highlights were confidently extracted.\n\nLEGAL ISSUES IDENTIFIED\n- Map the petition facts to the core statutory or contractual issue before filing.\n\nOBLIGATIONS\n- Prayer: direct delivery of vacant possession.\n\nRISKS\n- Absence of precise dates may weaken chronology and limitation analysis.\n\nMISSING POINTS\n- Signature block\n- Jurisdiction clause / statement\n\nCONTRADICTIONS WITH CASE\n- Case fact not clearly reflected in document: 2025-06-01: owner allowed occupant to stay temporarily in the property.\n- Case fact not clearly reflected in document: 2025-12-15: owner demanded vacant possession.\n- Case fact not clearly reflected in document: 2026-01-05: occupant refused to vacate and claimed oral tenancy.\n- Case fact not clearly reflected in document: owner says no rent was ever paid.\n\nSUGGESTED LEGAL STRATEGY\n- Map the key factual assertions in this petition to the pleaded legal issues and supporting evidence.\n\nPrepared for professional legal review. Verify statutory references, final facts, and court-specific drafting requirements before use.",
+      "strength": {
+        "matterId": "property-recovery-conflict",
+        "overallScore": 67,
+        "strengthLevel": "MODERATE",
+        "winProbability": "MEDIUM",
+        "scoreBreakdown": {
+          "authorityFit": 30,
+          "evidenceStrength": 55,
+          "consistency": 75
+        },
+        "strengths": [
+          "Fact narrative appears sufficiently specific for initial legal analysis.",
+          "Chronology markers are present in the fact narrative."
+        ],
+        "weaknesses": [
+          "No selected authorities were provided."
+        ],
+        "missingEvidence": [],
+        "riskAnalysis": [
+          "An oral arrangement may be challenged for lack of documentary proof."
+        ],
+        "suggestions": [
+          "Add at least one supporting precedent to improve authority strength.",
+          "Collect corroborative communication, witnesses, or conduct-based evidence."
+        ],
+        "authorityReview": []
+      },
+      "prediction": {
+        "winProbability": 58,
+        "riskLevel": "MEDIUM",
+        "confidenceScore": 52,
+        "keyFactors": [
+          "Document analysis extracted concrete factual anchors.",
+          "Document text contains obligation language that can support enforcement.",
+          "Fact narrative is developed enough for issue-level prediction.",
+          "An oral arrangement may be challenged for lack of documentary proof."
+        ],
+        "strengths": [
+          "Fact narrative appears sufficiently specific for initial legal analysis.",
+          "Chronology markers are present in the fact narrative."
+        ],
+        "weaknesses": [
+          "No selected authorities were provided.",
+          "Document gap affects evidentiary position: Signature block.",
+          "Document gap affects evidentiary position: Jurisdiction clause / statement.",
+          "No meaningful authority set was supplied for prediction.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2025-06-01: owner allowed occupant to stay temporarily in the property.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2025-12-15: owner demanded vacant possession.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: 2026-01-05: occupant refused to vacate and claimed oral tenancy.",
+          "Fact/document mismatch flagged: Case fact not clearly reflected in document: owner says no rent was ever paid."
+        ],
+        "improvementSuggestions": [
+          "Add at least one supporting precedent to improve authority strength.",
+          "Collect corroborative communication, witnesses, or conduct-based evidence.",
+          "Address the document gap: Signature block.",
+          "Address the document gap: Jurisdiction clause / statement.",
+          "Mitigate risk proactively: An oral arrangement may be challenged for lack of documentary proof.",
+          "Mitigate risk proactively: Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "scoreBreakdown": {
+          "evidenceStrength": 65,
+          "authorityQuality": 30,
+          "consistency": 55,
+          "riskPenaltyAdjusted": 90
+        }
+      },
+      "readiness": {
+        "matterId": "property-recovery-conflict",
+        "readinessScore": 82,
+        "readinessLevel": "READY",
+        "summary": "The matter appears substantially ready, subject to final lawyer verification.",
+        "checklist": [
+          {
+            "key": "facts",
+            "label": "Material facts captured",
+            "status": "READY",
+            "note": "Core facts are available."
+          },
+          {
+            "key": "issues",
+            "label": "Issues identified",
+            "status": "READY",
+            "note": "Issue list is available."
+          },
+          {
+            "key": "jurisdiction",
+            "label": "Jurisdiction checked",
+            "status": "READY",
+            "note": "Jurisdiction is available or mentioned."
+          },
+          {
+            "key": "chronology",
+            "label": "Chronology / dates available",
+            "status": "READY",
+            "note": "Dates or chronology markers are present."
+          },
+          {
+            "key": "documents",
+            "label": "Supporting documents attached",
+            "status": "READY",
+            "note": "Supporting records are present."
+          },
+          {
+            "key": "authorities",
+            "label": "Authorities selected",
+            "status": "CAUTION",
+            "note": "Select at least one relevant good-law authority."
+          },
+          {
+            "key": "limitation",
+            "label": "Limitation / timing reviewed",
+            "status": "CAUTION",
+            "note": "Check delay, limitation, and statutory deadlines explicitly."
+          },
+          {
+            "key": "prayer",
+            "label": "Prayer / relief section",
+            "status": "READY",
+            "note": "Prayer section detected."
+          },
+          {
+            "key": "annexures",
+            "label": "Annexures / enclosures",
+            "status": "READY",
+            "note": "Annexures or enclosures appear available."
+          },
+          {
+            "key": "vakalat",
+            "label": "Counsel / representation block",
+            "status": "CAUTION",
+            "note": "Add counsel / representation details where required."
+          },
+          {
+            "key": "affidavit_verification",
+            "label": "Verification / affidavit support",
+            "status": "CAUTION",
+            "note": "Add verification / affidavit support where required."
+          }
+        ],
+        "missingItems": [],
+        "criticalRisks": [
+          "An oral arrangement may be challenged for lack of documentary proof.",
+          "Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "nextSteps": []
+      },
+      "consistency": {
+        "consistencyScore": 0,
+        "consistencyLevel": "CONFLICTED",
+        "summary": "Material contradictions or narrative gaps should be resolved before relying on this matter record.",
+        "contradictions": [
+          "Date reference 2025-06-01 appears differently across Facts, Chronology, Draft.",
+          "Date reference 2025-12-15 appears differently across Facts, Draft.",
+          "Date reference 2026-01-05 appears differently across Facts, Chronology, Draft.",
+          "Case fact not clearly reflected in document: 2025-06-01: owner allowed occupant to stay temporarily in the property.",
+          "Case fact not clearly reflected in document: 2025-12-15: owner demanded vacant possession.",
+          "Case fact not clearly reflected in document: 2026-01-05: occupant refused to vacate and claimed oral tenancy.",
+          "Case fact not clearly reflected in document: owner says no rent was ever paid.",
+          "Draft does not clearly reflect this fact: 2025-06-01: Owner allowed occupant to stay temporarily in the property.",
+          "Draft does not clearly reflect this fact: 2025-12-15: Owner demanded vacant possession.",
+          "Draft does not clearly reflect this fact: 2026-01-05: Occupant refused to vacate and claimed oral tenancy."
+        ],
+        "missingCoverage": [
+          "Issue not clearly supported across current matter materials: Unauthorized occupation."
+        ],
+        "narrativeWeaknesses": [],
+        "suggestions": [
+          "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+          "Add issue-wise support in facts, documents, or draft text for the uncovered issues."
+        ],
+        "signalCount": 12
+      },
+      "coverage": {
+        "overallScore": 37,
+        "coverageLevel": "GAP HEAVY",
+        "summary": "Multiple issues remain under-supported and should be strengthened before filing or final advice.",
+        "matrix": [
+          {
+            "issue": "Possession recovery",
+            "coverageStatus": "PARTIAL",
+            "factSupport": "YES",
+            "documentSupport": "YES",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "YES",
+            "riskReviewed": "NO",
+            "matchedDocuments": [
+              "Legal notice draft"
+            ],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "Documents support this issue: Legal notice draft.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Draft text reflects this issue."
+            ]
+          },
+          {
+            "issue": "Unauthorized occupation",
+            "coverageStatus": "WEAK",
+            "factSupport": "NO",
+            "documentSupport": "NO",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "NO",
+            "riskReviewed": "NO",
+            "matchedDocuments": [],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts do not clearly cover this issue.",
+              "No document support is clearly mapped to this issue.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review should be added for this issue.",
+              "Current draft does not clearly reflect this issue."
+            ]
+          },
+          {
+            "issue": "Absence of tenancy proof",
+            "coverageStatus": "WEAK",
+            "factSupport": "YES",
+            "documentSupport": "NO",
+            "authoritySupport": "NO",
+            "argumentSupport": "NO",
+            "draftSupport": "NO",
+            "riskReviewed": "YES",
+            "matchedDocuments": [],
+            "matchedAuthorities": [],
+            "notes": [
+              "Facts mention this issue.",
+              "No document support is clearly mapped to this issue.",
+              "Authority support is thin or not mapped issue-wise.",
+              "Arguments are not yet clearly developed for this issue.",
+              "Risk review exists for this issue.",
+              "Current draft does not clearly reflect this issue."
+            ]
+          }
+        ],
+        "gaps": [
+          "Possession recovery: facts=YES, docs=YES, authority=NO, draft=YES",
+          "Unauthorized occupation: facts=NO, docs=NO, authority=NO, draft=NO",
+          "Absence of tenancy proof: facts=YES, docs=NO, authority=NO, draft=NO"
+        ],
+        "suggestions": [
+          "Map at least one strong authority to issue: Possession recovery.",
+          "Add opponent-risk analysis for issue: Possession recovery.",
+          "Add document support for issue: Unauthorized occupation.",
+          "Map at least one strong authority to issue: Unauthorized occupation.",
+          "Ensure the draft expressly addresses issue: Unauthorized occupation.",
+          "Add opponent-risk analysis for issue: Unauthorized occupation.",
+          "Add document support for issue: Absence of tenancy proof.",
+          "Map at least one strong authority to issue: Absence of tenancy proof.",
+          "Ensure the draft expressly addresses issue: Absence of tenancy proof."
+        ],
+        "stats": {
+          "issueCount": 3,
+          "strongCount": 0,
+          "weakCount": 2
+        }
+      },
+      "draftValidation": {
+        "validationScore": 22,
+        "validationLevel": "NEEDS WORK",
+        "summary": "The draft is missing important court-facing sections or formatting blocks.",
+        "checks": [
+          {
+            "key": "heading",
+            "label": "Court heading present",
+            "passed": false,
+            "note": "Draft should begin with a proper court heading.",
+            "severity": "high"
+          },
+          {
+            "key": "parties",
+            "label": "Party block present",
+            "passed": true,
+            "note": "Party names / roles should be shown clearly.",
+            "severity": "high"
+          },
+          {
+            "key": "facts",
+            "label": "Structured facts present",
+            "passed": false,
+            "note": "Facts section should be clearly structured.",
+            "severity": "high"
+          },
+          {
+            "key": "signature",
+            "label": "Signature block present",
+            "passed": false,
+            "note": "Signature / counsel block should be present.",
+            "severity": "medium"
+          },
+          {
+            "key": "grounds",
+            "label": "Legal grounds present",
+            "passed": false,
+            "note": "Petitions should contain a dedicated legal grounds section.",
+            "severity": "high"
+          },
+          {
+            "key": "cause",
+            "label": "Cause of action present",
+            "passed": false,
+            "note": "Cause of action section is expected in petitions.",
+            "severity": "high"
+          },
+          {
+            "key": "prayer",
+            "label": "Prayer section present",
+            "passed": true,
+            "note": "Petitions should end with clear prayers / reliefs.",
+            "severity": "high"
+          },
+          {
+            "key": "verification",
+            "label": "Verification support present",
+            "passed": false,
+            "note": "Petition filing packs often need verification / affidavit support.",
+            "severity": "medium"
+          },
+          {
+            "key": "cause_title",
+            "label": "Cause title / case title present",
+            "passed": false,
+            "note": "Trial-court filings usually need a clearer cause title / case numbering block.",
+            "severity": "medium"
+          }
+        ],
+        "missingSections": [
+          "Court heading present",
+          "Structured facts present",
+          "Signature block present",
+          "Legal grounds present",
+          "Cause of action present",
+          "Verification support present",
+          "Cause title / case title present"
+        ],
+        "criticalIssues": [
+          "Draft should begin with a proper court heading.",
+          "Facts section should be clearly structured.",
+          "Petitions should contain a dedicated legal grounds section.",
+          "Cause of action section is expected in petitions."
+        ],
+        "suggestions": [
+          "Draft should begin with a proper court heading.",
+          "Facts section should be clearly structured.",
+          "Signature / counsel block should be present.",
+          "Petitions should contain a dedicated legal grounds section.",
+          "Cause of action section is expected in petitions.",
+          "Petition filing packs often need verification / affidavit support.",
+          "Trial-court filings usually need a clearer cause title / case numbering block."
+        ],
+        "courtType": "trial_court",
+        "draftType": "petition",
+        "inferredDraftType": "petition"
+      },
+      "filingPack": {
+        "filingScore": 36,
+        "filingDecision": "HOLD",
+        "summary": "The filing pack still has blocking issues that should be resolved before filing.",
+        "blockers": [
+          "Readiness blocker: Jurisdiction checked",
+          "Consistency blocker: Date reference 2025-06-01 appears differently across Facts, Chronology, Draft.",
+          "Consistency blocker: Date reference 2025-12-15 appears differently across Facts, Draft.",
+          "Consistency blocker: Date reference 2026-01-05 appears differently across Facts, Chronology, Draft.",
+          "Consistency blocker: Case fact not clearly reflected in document: 2025-06-01: owner allowed occupant to stay temporarily in the property.",
+          "Draft blocker: Draft should begin with a proper court heading.",
+          "Draft blocker: Facts section should be clearly structured.",
+          "Draft blocker: Petitions should contain a dedicated legal grounds section.",
+          "Draft blocker: Cause of action section is expected in petitions."
+        ],
+        "warnings": [
+          "Coverage warning: Possession recovery: facts=YES, docs=YES, authority=NO, draft=YES",
+          "Coverage warning: Unauthorized occupation: facts=NO, docs=NO, authority=NO, draft=NO",
+          "Coverage warning: Absence of tenancy proof: facts=YES, docs=NO, authority=NO, draft=NO",
+          "An oral arrangement may be challenged for lack of documentary proof.",
+          "Absence of precise dates may weaken chronology and limitation analysis."
+        ],
+        "recommendations": [
+          "Confirm territorial and subject-matter jurisdiction.",
+          "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+          "Add issue-wise support in facts, documents, or draft text for the uncovered issues.",
+          "Map at least one strong authority to issue: Possession recovery.",
+          "Add opponent-risk analysis for issue: Possession recovery.",
+          "Add document support for issue: Unauthorized occupation.",
+          "Map at least one strong authority to issue: Unauthorized occupation.",
+          "Ensure the draft expressly addresses issue: Unauthorized occupation.",
+          "Draft should begin with a proper court heading.",
+          "Facts section should be clearly structured.",
+          "Signature / counsel block should be present.",
+          "Petitions should contain a dedicated legal grounds section."
+        ],
+        "componentScores": {
+          "readiness": 73,
+          "consistency": 0,
+          "coverage": 37,
+          "draftValidation": 22,
+          "authorityFreshness": 35
+        },
+        "readiness": {
+          "matterId": "property-recovery-conflict",
+          "readinessScore": 73,
+          "readinessLevel": "PARTIAL",
+          "summary": "The matter is partially ready but still needs targeted filing checks.",
+          "checklist": [
+            {
+              "key": "facts",
+              "label": "Material facts captured",
+              "status": "READY",
+              "note": "Core facts are available."
+            },
+            {
+              "key": "issues",
+              "label": "Issues identified",
+              "status": "READY",
+              "note": "Issue list is available."
+            },
+            {
+              "key": "jurisdiction",
+              "label": "Jurisdiction checked",
+              "status": "MISSING",
+              "note": "Confirm territorial and subject-matter jurisdiction."
+            },
+            {
+              "key": "chronology",
+              "label": "Chronology / dates available",
+              "status": "READY",
+              "note": "Dates or chronology markers are present."
+            },
+            {
+              "key": "documents",
+              "label": "Supporting documents attached",
+              "status": "READY",
+              "note": "Supporting records are present."
+            },
+            {
+              "key": "authorities",
+              "label": "Authorities selected",
+              "status": "CAUTION",
+              "note": "Select at least one relevant good-law authority."
+            },
+            {
+              "key": "limitation",
+              "label": "Limitation / timing reviewed",
+              "status": "CAUTION",
+              "note": "Check delay, limitation, and statutory deadlines explicitly."
+            },
+            {
+              "key": "prayer",
+              "label": "Prayer / relief section",
+              "status": "READY",
+              "note": "Prayer section detected."
+            },
+            {
+              "key": "annexures",
+              "label": "Annexures / enclosures",
+              "status": "READY",
+              "note": "Annexures or enclosures appear available."
+            },
+            {
+              "key": "vakalat",
+              "label": "Counsel / representation block",
+              "status": "CAUTION",
+              "note": "Add counsel / representation details where required."
+            },
+            {
+              "key": "affidavit_verification",
+              "label": "Verification / affidavit support",
+              "status": "CAUTION",
+              "note": "Add verification / affidavit support where required."
+            }
+          ],
+          "missingItems": [
+            "Jurisdiction checked"
+          ],
+          "criticalRisks": [
+            "An oral arrangement may be challenged for lack of documentary proof.",
+            "Absence of precise dates may weaken chronology and limitation analysis."
+          ],
+          "nextSteps": [
+            "Confirm territorial and subject-matter jurisdiction."
+          ]
+        },
+        "consistency": {
+          "consistencyScore": 0,
+          "consistencyLevel": "CONFLICTED",
+          "summary": "Material contradictions or narrative gaps should be resolved before relying on this matter record.",
+          "contradictions": [
+            "Date reference 2025-06-01 appears differently across Facts, Chronology, Draft.",
+            "Date reference 2025-12-15 appears differently across Facts, Draft.",
+            "Date reference 2026-01-05 appears differently across Facts, Chronology, Draft.",
+            "Case fact not clearly reflected in document: 2025-06-01: owner allowed occupant to stay temporarily in the property.",
+            "Case fact not clearly reflected in document: 2025-12-15: owner demanded vacant possession.",
+            "Case fact not clearly reflected in document: 2026-01-05: occupant refused to vacate and claimed oral tenancy.",
+            "Case fact not clearly reflected in document: owner says no rent was ever paid.",
+            "Draft does not clearly reflect this fact: 2025-06-01: Owner allowed occupant to stay temporarily in the property.",
+            "Draft does not clearly reflect this fact: 2025-12-15: Owner demanded vacant possession.",
+            "Draft does not clearly reflect this fact: 2026-01-05: Occupant refused to vacate and claimed oral tenancy."
+          ],
+          "missingCoverage": [
+            "Issue not clearly supported across current matter materials: Unauthorized occupation."
+          ],
+          "narrativeWeaknesses": [],
+          "suggestions": [
+            "Resolve date and fact mismatches between intake, chronology, and supporting material before drafting the final pleading.",
+            "Add issue-wise support in facts, documents, or draft text for the uncovered issues."
+          ],
+          "signalCount": 12
+        },
+        "coverage": {
+          "overallScore": 37,
+          "coverageLevel": "GAP HEAVY",
+          "summary": "Multiple issues remain under-supported and should be strengthened before filing or final advice.",
+          "matrix": [
+            {
+              "issue": "Possession recovery",
+              "coverageStatus": "PARTIAL",
+              "factSupport": "YES",
+              "documentSupport": "YES",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "YES",
+              "riskReviewed": "NO",
+              "matchedDocuments": [
+                "Legal notice draft"
+              ],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "Documents support this issue: Legal notice draft.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Draft text reflects this issue."
+              ]
+            },
+            {
+              "issue": "Unauthorized occupation",
+              "coverageStatus": "WEAK",
+              "factSupport": "NO",
+              "documentSupport": "NO",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "NO",
+              "riskReviewed": "NO",
+              "matchedDocuments": [],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts do not clearly cover this issue.",
+                "No document support is clearly mapped to this issue.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review should be added for this issue.",
+                "Current draft does not clearly reflect this issue."
+              ]
+            },
+            {
+              "issue": "Absence of tenancy proof",
+              "coverageStatus": "WEAK",
+              "factSupport": "YES",
+              "documentSupport": "NO",
+              "authoritySupport": "NO",
+              "argumentSupport": "NO",
+              "draftSupport": "NO",
+              "riskReviewed": "YES",
+              "matchedDocuments": [],
+              "matchedAuthorities": [],
+              "notes": [
+                "Facts mention this issue.",
+                "No document support is clearly mapped to this issue.",
+                "Authority support is thin or not mapped issue-wise.",
+                "Arguments are not yet clearly developed for this issue.",
+                "Risk review exists for this issue.",
+                "Current draft does not clearly reflect this issue."
+              ]
+            }
+          ],
+          "gaps": [
+            "Possession recovery: facts=YES, docs=YES, authority=NO, draft=YES",
+            "Unauthorized occupation: facts=NO, docs=NO, authority=NO, draft=NO",
+            "Absence of tenancy proof: facts=YES, docs=NO, authority=NO, draft=NO"
+          ],
+          "suggestions": [
+            "Map at least one strong authority to issue: Possession recovery.",
+            "Add opponent-risk analysis for issue: Possession recovery.",
+            "Add document support for issue: Unauthorized occupation.",
+            "Map at least one strong authority to issue: Unauthorized occupation.",
+            "Ensure the draft expressly addresses issue: Unauthorized occupation.",
+            "Add opponent-risk analysis for issue: Unauthorized occupation.",
+            "Add document support for issue: Absence of tenancy proof.",
+            "Map at least one strong authority to issue: Absence of tenancy proof.",
+            "Ensure the draft expressly addresses issue: Absence of tenancy proof."
+          ],
+          "stats": {
+            "issueCount": 3,
+            "strongCount": 0,
+            "weakCount": 2
+          }
+        },
+        "draftValidation": {
+          "validationScore": 22,
+          "validationLevel": "NEEDS WORK",
+          "summary": "The draft is missing important court-facing sections or formatting blocks.",
+          "checks": [
+            {
+              "key": "heading",
+              "label": "Court heading present",
+              "passed": false,
+              "note": "Draft should begin with a proper court heading.",
+              "severity": "high"
+            },
+            {
+              "key": "parties",
+              "label": "Party block present",
+              "passed": true,
+              "note": "Party names / roles should be shown clearly.",
+              "severity": "high"
+            },
+            {
+              "key": "facts",
+              "label": "Structured facts present",
+              "passed": false,
+              "note": "Facts section should be clearly structured.",
+              "severity": "high"
+            },
+            {
+              "key": "signature",
+              "label": "Signature block present",
+              "passed": false,
+              "note": "Signature / counsel block should be present.",
+              "severity": "medium"
+            },
+            {
+              "key": "grounds",
+              "label": "Legal grounds present",
+              "passed": false,
+              "note": "Petitions should contain a dedicated legal grounds section.",
+              "severity": "high"
+            },
+            {
+              "key": "cause",
+              "label": "Cause of action present",
+              "passed": false,
+              "note": "Cause of action section is expected in petitions.",
+              "severity": "high"
+            },
+            {
+              "key": "prayer",
+              "label": "Prayer section present",
+              "passed": true,
+              "note": "Petitions should end with clear prayers / reliefs.",
+              "severity": "high"
+            },
+            {
+              "key": "verification",
+              "label": "Verification support present",
+              "passed": false,
+              "note": "Petition filing packs often need verification / affidavit support.",
+              "severity": "medium"
+            },
+            {
+              "key": "cause_title",
+              "label": "Cause title / case title present",
+              "passed": false,
+              "note": "Trial-court filings usually need a clearer cause title / case numbering block.",
+              "severity": "medium"
+            }
+          ],
+          "missingSections": [
+            "Court heading present",
+            "Structured facts present",
+            "Signature block present",
+            "Legal grounds present",
+            "Cause of action present",
+            "Verification support present",
+            "Cause title / case title present"
+          ],
+          "criticalIssues": [
+            "Draft should begin with a proper court heading.",
+            "Facts section should be clearly structured.",
+            "Petitions should contain a dedicated legal grounds section.",
+            "Cause of action section is expected in petitions."
+          ],
+          "suggestions": [
+            "Draft should begin with a proper court heading.",
+            "Facts section should be clearly structured.",
+            "Signature / counsel block should be present.",
+            "Petitions should contain a dedicated legal grounds section.",
+            "Cause of action section is expected in petitions.",
+            "Petition filing packs often need verification / affidavit support.",
+            "Trial-court filings usually need a clearer cause title / case numbering block."
+          ],
+          "courtType": "trial_court",
+          "draftType": "petition",
+          "inferredDraftType": "petition"
+        },
+        "authorityFreshness": {
+          "score": 35,
+          "staleAuthorities": [],
+          "badAuthorities": [],
+          "authorityChecks": []
+        }
+      },
+      "review": {
+        "id": "937abae3828b15a87bfe97467542a755c5ca9347",
+        "ownerId": "scenario-test-owner",
+        "matterId": "property-recovery-conflict",
+        "entityType": "filing_pack",
+        "entityId": "",
+        "entityKey": "filing_pack:property-recovery-conflict",
+        "entityLabel": "Final Filing Pack",
+        "matterTitle": "Property Possession Recovery With Date Conflicts",
+        "draftVersionLabel": "v1",
+        "status": "needs_revision",
+        "approvalRole": "",
+        "reviewerName": "Scenario Bot",
+        "reviewNotes": "The filing pack still has blocking issues that should be resolved before filing.",
+        "reviewFindings": [
+          "Missing: Court heading present",
+          "Missing: Structured facts present",
+          "Missing: Signature block present",
+          "Missing: Legal grounds present",
+          "Missing: Cause of action present",
+          "Missing: Verification support present",
+          "Missing: Cause title / case title present",
+          "Draft should begin with a proper court heading.",
+          "Facts section should be clearly structured.",
+          "Petitions should contain a dedicated legal grounds section."
+        ],
+        "outputSummary": "The filing pack still has blocking issues that should be resolved before filing.",
+        "traceabilityNote": "",
+        "updatedAt": "2026-03-31T17:07:22.027Z",
+        "createdAt": "2026-03-31T17:07:22.027Z",
+        "reviewedAt": null,
+        "approvedAt": null
+      }
+    }
+  ]
+}

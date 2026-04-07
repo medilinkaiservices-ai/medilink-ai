@@ -3,6 +3,7 @@
   "scripts": {
     "lint": "eslint .",
     "test": "node runLegalUtilsTests.js",
+    "test:scenarios": "node runLegalScenarioReview.js",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"
@@ -13,6 +14,7 @@
   "dependencies": {
     "axios": "^1.13.5",
     "cors": "^2.8.5",
+    "express": "^4.21.2",
     "firebase-admin": "^13.6.1",
     "firebase-functions": "^7.2.2"
   },

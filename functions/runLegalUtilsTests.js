@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 
 const {
   LEGACY_REFERENCE_RULES,
+  classifyCaseNature,
   normalizeSearchText,
   retrieveLegalContext,
   getLegacyReferenceMatches,
@@ -52,6 +53,20 @@ runTest("retrieveLegalContext prioritizes NI Act for cheque dishonour research",
   const results = retrieveLegalContext("Cheque issued on 1 March and dishonoured on 5 March for insufficient funds", 4);
   assert.equal(results[0].citation, "Negotiable Instruments Act, 1881 - Section 138");
   assert.ok(!results.some((item) => item.citation.includes("Constitution of India - Article 14")));
+});
+
+runTest("retrieveLegalContext excludes unrelated criminal and consumer authorities for cheque dishonour", () => {
+  const results = retrieveLegalContext("Cheque dishonour under Section 138 after bank memo and statutory notice", 8);
+  const citations = results.map((item) => item.citation);
+  assert.ok(citations.includes("Negotiable Instruments Act, 1881 - Section 138"));
+  assert.ok(!citations.includes("Bharatiya Nyaya Sanhita, 2023 - Section 303"));
+  assert.ok(!citations.includes("Bharatiya Nyaya Sanhita, 2023 - Cheating provisions"));
+  assert.ok(!citations.includes("Consumer Protection Act, 2019"));
+});
+
+runTest("classifyCaseNature distinguishes civil recovery from criminal complaints", () => {
+  assert.equal(classifyCaseNature("Tenant failed to return security deposit after lease ended"), "civil");
+  assert.equal(classifyCaseNature("Police refused FIR after theft of bike"), "criminal");
 });
 
 runTest("getLegacyReferenceMatches finds multiple legacy markers", () => {
@@ -444,6 +459,125 @@ runTest("analyzeDraftValidation recognizes visible legal notice sections", () =>
   assert.ok(!failed.includes("signature"));
   assert.ok(!failed.includes("demand"));
   assert.ok(result.validationScore > 0);
+});
+
+runTest("analyzeDraftValidation infers notice template when draft type is mismatched", () => {
+  const result = analyzeDraftValidation({
+    draftType: "petition",
+    courtType: "general",
+    draftText: `LEGAL NOTICE
+
+FROM:
+COUNSEL FOR THE CLAIMANT
+
+TO:
+THE NOTICEE
+
+SUBJECT:
+Demand notice under Section 138
+
+UNDER INSTRUCTIONS from my client, I hereby state as follows:
+
+FACTS
+Cheque dishonoured and payment not made.
+
+LEGAL BASIS
+Section 138 of the Negotiable Instruments Act, 1881.
+
+DEMAND / PRAYER
+You are hereby called upon to comply within the statutory period, failing which proceedings shall follow.
+
+COUNSEL FOR THE NOTICE ISSUER
+[SIGNATURE BLOCK]`
+  });
+
+  assert.equal(result.draftType, "notice");
+  assert.ok(!result.missingSections.includes("Subject line present"));
+  assert.ok(!result.missingSections.includes("Demand / compliance clause present"));
+});
+
+runTest("analyzeDraftValidation tolerates alternate notice phrasing for subject and signature", () => {
+  const result = analyzeDraftValidation({
+    draftType: "notice",
+    draftText: `LEGAL NOTICE
+
+FROM:
+Advocate for the claimant
+
+TO:
+Borrower
+
+RE: Demand for payment after cheque dishonour
+
+Background:
+Cheque dated 1 March 2026 was returned unpaid on 5 March 2026. Despite notice, the amount remains unpaid and the claimant seeks compliance.
+
+The demand is made under Section 138 of the Negotiable Instruments Act, 1881.
+
+You are called upon to make payment within 15 days, failing which proceedings will be initiated.
+
+Yours faithfully,
+Counsel for claimant`
+  });
+
+  assert.ok(!result.missingSections.includes("Subject line present"));
+  assert.ok(!result.missingSections.includes("Signature block present"));
+  assert.ok(!result.missingSections.includes("Demand / compliance clause present"));
+  assert.ok(!result.missingSections.includes("Legal basis present"));
+});
+
+runTest("copilot-style fallback notice passes structural validation", () => {
+  const { validateDocument } = require("./copilot/validationService");
+  const result = validateDocument({
+    documentType: "notice",
+    documentText: `LEGAL NOTICE
+
+FROM
+Demo Client
+
+TO
+Demo Respondent
+
+SUBJECT
+Cheque dishonour notice
+
+FACTUAL BACKGROUND
+Cheque issued on 1 March 2026 and dishonoured on 5 March 2026. Notice sent and payment not made.
+
+LEGAL RESPONSE
+Negotiable Instruments Act, 1881 - Section 138
+
+RESERVATION OF RIGHTS
+All rights and remedies are reserved.`,
+    contextPacket: {
+      sections: [{ label: "Negotiable Instruments Act, 1881 - Section 138" }]
+    }
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.missingSections.length, 0);
+});
+
+runTest("copilot-style fallback affidavit passes structural validation", () => {
+  const { validateDocument } = require("./copilot/validationService");
+  const result = validateDocument({
+    documentType: "affidavit",
+    documentText: `AFFIDAVIT
+
+DEPONENT DETAILS
+Demo Client
+
+STATEMENTS ON OATH
+I solemnly affirm and state as follows:
+The facts stated here are true to my knowledge.
+
+VERIFICATION
+Verified that the contents are true to knowledge and belief.`,
+    contextPacket: {}
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.missingSections.length, 0);
 });
 
 runTest("predictCaseOutcome returns weighted explainable output", async () => {
